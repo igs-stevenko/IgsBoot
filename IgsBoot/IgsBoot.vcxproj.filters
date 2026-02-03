@@ -18,5 +18,37 @@
     <ClCompile Include="IgsBoot.cpp">
       <Filter>來源檔案</Filter>
     </ClCompile>
+    <ClCompile Include="ProgressUI.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+    <ClCompile Include="TPM.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+    <ClCompile Include="Calculation.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+    <ClCompile Include="GetFormDevice.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+    <ClCompile Include="Other.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ProgressUI.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="TPM.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="Calculation.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="GetFromDevice.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="Other.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

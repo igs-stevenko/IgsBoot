@@ -125,12 +125,31 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\Program Files\OpenSSL-Win64\lib\VC\x64\MT;$(ProjectDir)libs\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD\;$(ProjectDir)libs\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>qxteeprom.lib;libcrypto.lib;tbs.lib;ncrypt.lib;hasp_windows_x64_114533.lib;qsys.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(ProjectDir)libs\libcrypto-3-x64.dll" "$(TargetDir)"
+copy /Y "$(ProjectDir)libs\qxteeprom.dll" "$(TargetDir)"
+copy /Y "$(ProjectDir)libs\qsys.dll" "$(TargetDir)"
+copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
+</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Calculation.cpp" />
+    <ClCompile Include="GetFormDevice.cpp" />
     <ClCompile Include="IgsBoot.cpp" />
+    <ClCompile Include="Other.cpp" />
+    <ClCompile Include="ProgressUI.cpp" />
+    <ClCompile Include="TPM.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Calculation.h" />
+    <ClInclude Include="GetFromDevice.h" />
+    <ClInclude Include="Other.h" />
+    <ClInclude Include="ProgressUI.h" />
+    <ClInclude Include="TPM.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
