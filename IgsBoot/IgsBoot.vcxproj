@@ -129,7 +129,8 @@
       <AdditionalDependencies>qxteeprom.lib;libcrypto.lib;tbs.lib;ncrypt.lib;hasp_windows_x64_114533.lib;qsys.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)libs\libcrypto-3-x64.dll" "$(TargetDir)"
+      <Command>copy /Y "$(ProjectDir)other\ProtectedEepromDevices.json" "$(TargetDir)"
+copy /Y "$(ProjectDir)libs\libcrypto-3-x64.dll" "$(TargetDir)"
 copy /Y "$(ProjectDir)libs\qxteeprom.dll" "$(TargetDir)"
 copy /Y "$(ProjectDir)libs\qsys.dll" "$(TargetDir)"
 copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"

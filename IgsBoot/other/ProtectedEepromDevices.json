@@ -1,0 +1,207 @@
+{
+  "platforms": [
+    {
+      "id": "0x17",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28CM00", "channel": 0, "address": "0x50"
+            },
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x52"
+            },
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x54"
+            },
+            {
+              "model": "DS28CN01", "channel": 0, "address": "0x55"
+            },
+            {
+              "model": "DS28CN01", "channel": 0, "address": "0x58"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x18",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28CM00", "channel": 0, "address": "0x50"
+            },
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x52"
+            },
+            {
+              "model": "DS28CN01", "channel": 0, "address": "0x54"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x1A",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": []
+        },
+        {
+          "bus": "smbus",
+          "devices": []
+        }
+      ]
+    },
+    {
+      "id": "0x1E",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28C50", "channel": 0, "address": "0x38"
+            },
+            {
+              "model": "M24128", "channel": 0, "address": "0x52"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x1D",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28CM00", "channel": 0, "address": "0x50"
+            },
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x52"
+            },
+            {
+              "model": "DS28CN01", "channel": 0, "address": "0x54"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x22",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28C50", "channel": 0, "address": "0x38"
+            },
+            {
+              "model": "M24128", "channel": 0, "address": "0x52"
+            },
+            {
+              "model": "DS28C50", "channel": 1, "address": "0x38"
+            },
+            {
+              "model": "AT24C02", "channel": 1, "address": "0x54"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x23",
+      "buses": [
+        {
+          "bus": "i2c",
+          "devices": [
+            {
+              "model": "DS28C50", "channel": 0, "address": "0x38"
+            },
+            {
+              "model": "M24128", "channel": 0, "address": "0x52"
+            },
+            {
+              "model": "M24128", "channel": 0, "address": "0x53"
+            }
+          ]
+        },
+        {
+          "bus": "smbus",
+          "devices": [
+            {
+              "model": "AT24C02", "channel": 0, "address": "0x56"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0x24",
+        "buses":
+        [
+            {
+            "bus": "i2c",
+            "devices": [
+                {
+                "model": "M24128", "channel": 0, "address": "0x52"
+                }
+            ]
+            },
+            {
+            "bus": "smbus",
+            "devices": [
+              {
+                "model": "AT24C02", "channel": 0, "address": "0x56"
+              }
+            ]
+            }
+        ]
+    }
+  ]
+}
