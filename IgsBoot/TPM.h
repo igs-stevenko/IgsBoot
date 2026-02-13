@@ -16,6 +16,6 @@
 #include <thread>
 
 int TPMUseKeyDec(const char* KeyName, BYTE* DataIn, DWORD DataInLen, BYTE* DataOut, DWORD* DataOutLen);
-
+bool WaitForTPM(int timeoutSec);
 
 #endif

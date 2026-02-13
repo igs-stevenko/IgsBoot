@@ -86,7 +86,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-void SetProgress(HWND hWnd, DWORD percent)
+void SetProgress(DWORD percent)
 {
 	if (percent < 0) percent = 0;
 	if (percent > 100) percent = 100;
@@ -109,7 +109,7 @@ void ShowProgress() {
 
 	hWnd = CreateWindow(
 		L"MyWin32Window",
-		L"Auto Progress Demo",
+		L"Loading...",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT,
 		400, 150,

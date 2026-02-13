@@ -20,6 +20,7 @@
 #include "TPM.h"
 #include "Calculation.h"
 #include "GetFromDevice.h"
+#include "Register.h"
 #include "Other.h"
 
 #pragma warning(disable:4996)
@@ -41,7 +42,9 @@ enum {
     TPM_DEC_FAILED,
     GET_UUID_FAILED,
 	DEC_PARTITIONKEY_FAILED,
-    MOUNT_FAILED
+    MOUNT_FAILED,
+    TPM_FAILED,
+    REGISTER_CHECK_FAILED
 
 };
 
@@ -62,7 +65,7 @@ void print_hex(unsigned char* buf, int len) {
     }
 }
 
-int GetProcessMode() {
+int GetProcessMode(void) {
 
     int rtn = 0;
 
@@ -80,6 +83,104 @@ TODO:
     return BOOT_MODE;
 }
 
+bool LaunchGame()
+{
+    STARTUPINFOW si = { 0 };
+    PROCESS_INFORMATION pi = { 0 };
+    si.cb = sizeof(si);
+
+    // 一定要用完整路徑
+    wchar_t cmdLine[] = L"\"X:\\ImageLoader\\ImageLoader.exe\"";
+
+    BOOL ok = CreateProcessW(
+        NULL,           // lpApplicationName
+        cmdLine,        // lpCommandLine（可改成含參數）
+        NULL, NULL,
+        FALSE,
+        CREATE_NO_WINDOW,   // 不顯示黑視窗
+        NULL,
+        L"X:\\ImageLoader\\",            // ⭐ Working Directory（非常重要）
+        &si,
+        &pi
+    );
+
+    if (!ok) {
+        DWORD err = GetLastError();
+        // 這裡你可以記 log
+        return false;
+    }
+
+    // 若你「不需要等 final.exe 結束」
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return true;
+}
+
+bool LaunchTarget(const wchar_t* exePath,
+    const wchar_t* workDir,
+    PROCESS_INFORMATION& pi)
+{
+    STARTUPINFOW si = { 0 };
+    si.cb = sizeof(si);
+
+    wchar_t cmdLine[MAX_PATH * 2];
+    swprintf_s(cmdLine, L"\"%s\"", exePath);
+
+    printf("[INFO] : %s %d\n", __func__, __LINE__);
+
+
+    BOOL rtn = CreateProcessW(
+        NULL,
+        cmdLine,
+        NULL, NULL,
+        FALSE,
+        0,
+        NULL,
+        workDir,
+        &si,
+        &pi
+    );
+	if (rtn != TRUE) {
+        DWORD err = GetLastError();
+        printf("CreateProcessW failed: 0x%X\n", err);
+        return false;
+    }
+
+    return rtn;
+}
+
+void EnsureAlwaysRunning(const wchar_t* exePath,
+    const wchar_t* workDir)
+{
+    PROCESS_INFORMATION pi = { 0 };
+    DWORD lastLaunch = 0;
+
+    while (true)
+    {
+        // 尚未啟動 or 已經結束
+        if (pi.hProcess == NULL ||
+            WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0)
+        {
+            // 清理舊 handle
+            if (pi.hProcess) {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                pi = {};
+            }
+
+            // 啟動節流（避免 crash loop）
+            DWORD now = GetTickCount();
+            if (now - lastLaunch >= 3000)
+            {
+                if (LaunchTarget(exePath, workDir, pi))
+                    lastLaunch = now;
+            }
+        }
+
+        Sleep(1000); // 輪詢間隔
+    }
+}
+
 int BootMode() {
 
     int rtn = 0;
@@ -93,11 +194,23 @@ int BootMode() {
     DWORD IMKeyEnLen = sizeof(IMKeyEn);
     DWORD IMKeyDeLen = sizeof(IMKeyDe);
 
+TODO:
+    //檢查Register的設置是否都正確
+    rtn = CheckRegister();
+    if(rtn != 0){
+        ErrorMessage(REGISTER_CHECK_FAILED);
+        return -REGISTER_CHECK_FAILED;
+	}
+
+    SetProgress(10);
+
     rtn = ReadIMKeyEnFromEEProm(IMKeyEn, IMKeyEnLen);
     if (rtn != 0){
         ErrorMessage(-GET_IMKEY_FAILED);
         return -GET_IMKEY_FAILED;
     }
+
+    SetProgress(20);
 
     print_hex(IMKeyEn, IMKeyEnLen);
 
@@ -106,6 +219,8 @@ int BootMode() {
         ErrorMessage(-TPM_DEC_FAILED);
         return -TPM_DEC_FAILED;
     }
+
+    SetProgress(30);
 
     //printf("IMKeyDeLen = %d\n", IMKeyDeLen);
 
@@ -118,6 +233,8 @@ int BootMode() {
         return -GET_UUID_FAILED;
 	}
 
+    SetProgress(50);
+
     BYTE SerialNumberSha256[32] = { 0x0 };
     SHA256(SerialNumber, SerialNumberLen, SerialNumberSha256);
 
@@ -125,21 +242,25 @@ int BootMode() {
                     0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f 
                   };
 
+    /* 磁碟中介Key(明)使用AES解密後，會變成32Bytes的磁碟Key，是一個字串，所以實質上的array是33bytes */
     BYTE PartitionKey[33] = { 0x00 };
     DWORD PartitionKeyLen = 0;
 
-    /* 磁碟中介Key(明)使用AES解密後，會變成32Bytes的磁碟Key，是一個字串，所以實質上的array是33bytes */
     rtn = Aes256Decrypt(SerialNumberSha256, IV, IMKeyDe, IMKeyDeLen, PartitionKey, &PartitionKeyLen);
     if(rtn != 0){
         ErrorMessage(-DEC_PARTITIONKEY_FAILED);
         return -DEC_PARTITIONKEY_FAILED;
 	}
 
+    SetProgress(70);
+
     rtn = MountPartition(PartitionKey);
     if (rtn != 0) {
         ErrorMessage(-MOUNT_FAILED);
         return -MOUNT_FAILED;
     }
+
+    SetProgress(100);
 
     return rtn;
 }
@@ -151,21 +272,44 @@ int UpdateMode() {
     return rtn;
 }
 
+void WorkerThread(int mode)
+{
+    int rtn = 0;
+
+    if (!WaitForTPM(60)) {
+        // TPM 1 分鐘還沒 ready → 直接 fail
+        ErrorMessage(-TPM_FAILED);
+        return;
+    }
+
+    SetProgress(5);
+
+    if (mode == BOOT_MODE) {
+        rtn = BootMode();
+        if (rtn != 0) {
+            //ErrorMessage(rtn);
+        }
+    }
+    else if (mode == UPDATE_MODE) {
+        SetProgress(5);
+        UpdateMode();
+    }
+}
 
 int main(int argc, char* argv[])
 {
     int  ProcessMode;
 
+    //FreeConsole();
+
     ProcessMode = GetProcessMode();
 
-    if (ProcessMode == BOOT_MODE) {
-        BootMode();
-    }
-    else if(ProcessMode == UPDATE_MODE){
-        UpdateMode();
-    }
+    std::thread t(WorkerThread, ProcessMode);
+    t.detach();   // 讓 thread 自己跑，不阻塞主程式
 
     ShowProgress();
+
+    EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
 
     return 0;
 }

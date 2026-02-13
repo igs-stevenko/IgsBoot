@@ -165,3 +165,36 @@ int TPMUseKeyDec(
     NCryptFreeObject(hProv);
     return 0;
 }
+
+
+bool IsTPMReady()
+{
+    NCRYPT_PROV_HANDLE hProv = 0;
+    SECURITY_STATUS status =
+        NCryptOpenStorageProvider(
+            &hProv,
+            MS_PLATFORM_CRYPTO_PROVIDER,
+            0);
+
+    if (status == ERROR_SUCCESS) {
+        NCryptFreeObject(hProv);
+        return true;
+    }
+
+    return false;
+}
+
+bool WaitForTPM(int timeoutSec)
+{
+    const int intervalMs = 1000;
+    int waited = 0;
+
+    while (waited < timeoutSec * 1000) {
+        if (IsTPMReady())
+            return true;
+
+        Sleep(intervalMs);
+        waited += intervalMs;
+    }
+    return false;
+}

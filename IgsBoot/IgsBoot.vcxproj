@@ -143,6 +143,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClCompile Include="IgsBoot.cpp" />
     <ClCompile Include="Other.cpp" />
     <ClCompile Include="ProgressUI.cpp" />
+    <ClCompile Include="Register.cpp" />
     <ClCompile Include="TPM.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -150,6 +151,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClInclude Include="GetFromDevice.h" />
     <ClInclude Include="Other.h" />
     <ClInclude Include="ProgressUI.h" />
+    <ClInclude Include="Register.h" />
     <ClInclude Include="TPM.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

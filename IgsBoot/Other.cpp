@@ -18,7 +18,7 @@ int MountPartition(BYTE* key) {
 	char cmd[512];
 	sprintf(cmd,
 		"\"C:\\VeraCrypt\\VeraCrypt-x64.exe\" "
-		"/v C:\\KO\\igs.img "
+		"/v C:\\KO\\x.img "
 		"/l X "
 		"/p %s "
 		"/q /s /m rm",

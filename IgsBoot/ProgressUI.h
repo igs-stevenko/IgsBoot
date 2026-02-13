@@ -6,7 +6,7 @@
 
 void InitProgressBar(HWND hWnd);
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void SetProgress(HWND hWnd, DWORD percent);
+void SetProgress(DWORD percent);
 void ShowProgress();
 
 #endif
