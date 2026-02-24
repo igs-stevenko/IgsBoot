@@ -126,9 +126,6 @@ bool LaunchTarget(const wchar_t* exePath,
     wchar_t cmdLine[MAX_PATH * 2];
     swprintf_s(cmdLine, L"\"%s\"", exePath);
 
-    printf("[INFO] : %s %d\n", __func__, __LINE__);
-
-
     BOOL rtn = CreateProcessW(
         NULL,
         cmdLine,
@@ -142,7 +139,6 @@ bool LaunchTarget(const wchar_t* exePath,
     );
 	if (rtn != TRUE) {
         DWORD err = GetLastError();
-        printf("CreateProcessW failed: 0x%X\n", err);
         return false;
     }
 
@@ -184,6 +180,7 @@ void EnsureAlwaysRunning(const wchar_t* exePath,
 int BootMode() {
 
     int rtn = 0;
+	int i = 0;
 
     /* IMKeyEnLen是磁碟中介Key(密)，因為經過TPM加密，所以長度是256 Bytes 
        IMKeyDeLen是磁碟中介Key(明)，Array長度開出256bytes是因為解密時需要這麼大的空間，而實際上只有48Bytes是有效值 */
@@ -204,21 +201,42 @@ TODO:
 
     SetProgress(10);
 
-    rtn = ReadIMKeyEnFromEEProm(IMKeyEn, IMKeyEnLen);
-    if (rtn != 0){
+    //每個與實體Device通訊的地方都要加上Retry
+    //EEPROM Retry 3次
+    for (i = 0; i < 3; i++) {
+        rtn = ReadIMKeyEnFromEEProm(IMKeyEn, IMKeyEnLen);
+        if (rtn != 0) {
+			Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+
+        break;
+    }
+
+    if(i == 3){
         ErrorMessage(-GET_IMKEY_FAILED);
         return -GET_IMKEY_FAILED;
-    }
+	}
 
     SetProgress(20);
 
-    print_hex(IMKeyEn, IMKeyEnLen);
+    //print_hex(IMKeyEn, IMKeyEnLen);
 
-    rtn = TPMUseKeyDec("IGSCardKey", IMKeyEn, IMKeyEnLen, IMKeyDe, &IMKeyDeLen);
-    if(rtn != 0){
+
+    //TPM 也加入Retry 3次的機制
+    for(i = 0; i < 3; i++) {
+        rtn = TPMUseKeyDec("IGSCardKey", IMKeyEn, IMKeyEnLen, IMKeyDe, &IMKeyDeLen);
+        if(rtn != 0){
+            Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+
+        break;
+	}
+    if(i == 3){
         ErrorMessage(-TPM_DEC_FAILED);
-        return -TPM_DEC_FAILED;
-    }
+		return -TPM_DEC_FAILED;
+	}
 
     SetProgress(30);
 
@@ -227,10 +245,19 @@ TODO:
     BYTE SerialNumber[256] = { 0x00 };
     DWORD SerialNumberLen = 0;
 
-    rtn = GetLabelSerialNumber(SerialNumber, &SerialNumberLen);
-    if(rtn != 0){
+
+	//取得SerialNumber也加入Retry 3次的機制
+    for (i = 0; i < 3; i++) {
+        rtn = GetLabelSerialNumber(SerialNumber, &SerialNumberLen);
+        if(rtn != 0){
+            Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+        break;
+	}
+    if(i == 3){
         ErrorMessage(-GET_UUID_FAILED);
-        return -GET_UUID_FAILED;
+		return -GET_UUID_FAILED;
 	}
 
     SetProgress(50);
@@ -300,7 +327,7 @@ int main(int argc, char* argv[])
 {
     int  ProcessMode;
 
-    //FreeConsole();
+    FreeConsole();
 
     ProcessMode = GetProcessMode();
 

@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="IgsBoot/IgsBoot.vcxproj" />
+  <Project Path="IgsBoot/IgsBoot.vcxproj" Id="de582dd4-76e6-46c1-8dd5-0698ffa184ff" />
 </Solution>
