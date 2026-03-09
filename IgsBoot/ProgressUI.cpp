@@ -12,6 +12,7 @@
 #include <commctrl.h>
 #include <thread>
 
+#include "IgsBoot.h"
 
 HWND hWnd;
 HWND hProgress;
@@ -95,7 +96,7 @@ void SetProgress(DWORD percent)
 }
 
 
-void ShowProgress() {
+void ShowProgress(DWORD Mode) {
 
 	HINSTANCE hInst = GetModuleHandle(NULL);
 
@@ -104,12 +105,20 @@ void ShowProgress() {
 	wc.hInstance = hInst;
 	wc.lpszClassName = L"MyWin32Window";
 	wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+	LPCTSTR windowTitle = TEXT("");
+
+	if (Mode == BOOT_MODE) {
+		windowTitle = TEXT("Game Loading");
+	}
+	else if(Mode == UPDATE_MODE) {
+		windowTitle = TEXT("Game Updating");
+	}
 
 	RegisterClass(&wc);
 
 	hWnd = CreateWindow(
 		L"MyWin32Window",
-		L"Loading...",
+		windowTitle,
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT,
 		400, 150,

@@ -16,5 +16,6 @@
 
 uint32_t crc32(const BYTE* data, DWORD length);
 int Aes256Decrypt(BYTE* Key, BYTE* IV, BYTE* Input, DWORD InputLen, BYTE* Output, DWORD* OutputLen);
+int CalcFileMD5(const char* filename, unsigned char* out_md5);
 
 #endif

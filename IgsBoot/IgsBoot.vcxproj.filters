@@ -36,6 +36,12 @@
     <ClCompile Include="Register.cpp">
       <Filter>來源檔案</Filter>
     </ClCompile>
+    <ClCompile Include="GameUpdate.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
+    <ClCompile Include="File.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ProgressUI.h">
@@ -54,6 +60,15 @@
       <Filter>來源檔案</Filter>
     </ClInclude>
     <ClInclude Include="Register.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="GameUpdate.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="IgsBoot.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="File.h">
       <Filter>來源檔案</Filter>
     </ClInclude>
   </ItemGroup>

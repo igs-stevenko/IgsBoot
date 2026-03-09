@@ -139,6 +139,8 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Calculation.cpp" />
+    <ClCompile Include="File.cpp" />
+    <ClCompile Include="GameUpdate.cpp" />
     <ClCompile Include="GetFormDevice.cpp" />
     <ClCompile Include="IgsBoot.cpp" />
     <ClCompile Include="Other.cpp" />
@@ -148,7 +150,10 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Calculation.h" />
+    <ClInclude Include="File.h" />
+    <ClInclude Include="GameUpdate.h" />
     <ClInclude Include="GetFromDevice.h" />
+    <ClInclude Include="IgsBoot.h" />
     <ClInclude Include="Other.h" />
     <ClInclude Include="ProgressUI.h" />
     <ClInclude Include="Register.h" />

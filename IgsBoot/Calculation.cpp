@@ -11,7 +11,8 @@
 #include <ncrypt.h>
 #include <commctrl.h>
 
-#define CHUNK 4096
+#define CHUNK_4K 4096
+#define CHUNK_4M (1024 * 1024 * 4)   // 4MB buffer
 
 uint32_t crc32(const uint8_t* data, size_t length) {
 	uint32_t crc = 0xFFFFFFFF;
@@ -51,8 +52,8 @@ int Aes256Decrypt(BYTE *Key,BYTE *IV, BYTE *Input, DWORD InputLen, BYTE *Output,
 	int DecError = 0;
 
 	while (Offset < InputLen) {
-		size_t DecLen = (InputLen - Offset > CHUNK)
-			? CHUNK
+		size_t DecLen = (InputLen - Offset > CHUNK_4K)
+			? CHUNK_4K
 			: InputLen - Offset;
 
 		if (!EVP_DecryptUpdate(
@@ -80,6 +81,62 @@ int Aes256Decrypt(BYTE *Key,BYTE *IV, BYTE *Input, DWORD InputLen, BYTE *Output,
 
 	Total += LEN;
 	*OutputLen = Total;
+
+	return 0;
+}
+
+
+int CalcFileMD5(const char* filename, unsigned char* out_md5)
+{
+	FILE* fp = NULL;
+	fopen_s(&fp, filename, "rb");
+	if (!fp) {
+		printf("Open file failed\n");
+		return -1;
+	}
+
+	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+	if (!ctx) {
+		fclose(fp);
+		return -2;
+	}
+
+	if (EVP_DigestInit_ex(ctx, EVP_md5(), NULL) != 1) {
+		fclose(fp);
+		EVP_MD_CTX_free(ctx);
+		return -3;
+	}
+
+	unsigned char* buffer = (unsigned char*)malloc(CHUNK_4M);
+	if (!buffer) {
+		fclose(fp);
+		EVP_MD_CTX_free(ctx);
+		return -4;
+	}
+
+	size_t bytesRead = 0;
+
+	while ((bytesRead = fread(buffer, 1, CHUNK_4M, fp)) > 0)
+	{
+		if (EVP_DigestUpdate(ctx, buffer, bytesRead) != 1) {
+			free(buffer);
+			fclose(fp);
+			EVP_MD_CTX_free(ctx);
+			return -5;
+		}
+	}
+
+	unsigned int md_len = 0;
+	if (EVP_DigestFinal_ex(ctx, out_md5, &md_len) != 1) {
+		free(buffer);
+		fclose(fp);
+		EVP_MD_CTX_free(ctx);
+		return -6;
+	}
+
+	free(buffer);
+	fclose(fp);
+	EVP_MD_CTX_free(ctx);
 
 	return 0;
 }

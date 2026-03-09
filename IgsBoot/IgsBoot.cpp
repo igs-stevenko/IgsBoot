@@ -15,13 +15,15 @@
 #include <commctrl.h>
 #include <thread>
 #include <openssl/sha.h>
-
+#include "IgsBoot.h"
 #include "ProgressUI.h"
 #include "TPM.h"
 #include "Calculation.h"
 #include "GetFromDevice.h"
 #include "Register.h"
 #include "Other.h"
+#include "GameUpdate.h"
+#include "File.h"
 
 #pragma warning(disable:4996)
 #pragma comment(lib, "tbs.lib")
@@ -32,21 +34,9 @@
  name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
  processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
-enum {
-    BOOT_MODE = 0,
-    UPDATE_MODE
-};
-
-enum {
-    GET_IMKEY_FAILED = 1,
-    TPM_DEC_FAILED,
-    GET_UUID_FAILED,
-	DEC_PARTITIONKEY_FAILED,
-    MOUNT_FAILED,
-    TPM_FAILED,
-    REGISTER_CHECK_FAILED
-
-};
+#define XIMAGE "x.img"
+#define MD5_FILE "x_md5.bin"
+#define LOCAL_XIMAGE_PATH "C:\\Program Files (x86)\\IGS\\x.img"
 
 
 void ErrorMessage(int ErrorCode) {
@@ -54,6 +44,13 @@ void ErrorMessage(int ErrorCode) {
     std::string msg = "E" + std::to_string(ErrorCode);
 
     MessageBoxA(nullptr, msg.c_str(), "Debug", MB_OK);
+}
+
+void InfoMessage(const char *Info) {
+
+    std::string msg = Info;
+
+    MessageBoxA(nullptr, msg.c_str(), "INFO", MB_OK);
 }
 
 void print_hex(unsigned char* buf, int len) {
@@ -65,56 +62,35 @@ void print_hex(unsigned char* buf, int len) {
     }
 }
 
-int GetProcessMode(void) {
+int GetMode(void) {
 
     int rtn = 0;
 
-TODO:
-    /*
-    rtn = DetectUSBStorage()
-    if(rtn == USB_STORAGE_DETECTED) {
-        return UPDATE_MODE;
-	}
-    else{
+	BYTE MountPath[128] = { 0 };
+    
+
+    /* 偵測有沒有USB Storage掛載起來，沒有則進入BOOT_MODE */
+    rtn = DetectUSBStorage(MountPath);
+    if(rtn == USB_STORAGE_NOT_DETECTED) {
         return BOOT_MODE;
-    }
-    */
+	}
+    else {
+        BYTE XImagePath[128] = { 0 };
+        sprintf((char*)XImagePath, "%s:\\%s", MountPath, XIMAGE);
 
-    return BOOT_MODE;
-}
-
-bool LaunchGame()
-{
-    STARTUPINFOW si = { 0 };
-    PROCESS_INFORMATION pi = { 0 };
-    si.cb = sizeof(si);
-
-    // 一定要用完整路徑
-    wchar_t cmdLine[] = L"\"X:\\ImageLoader\\ImageLoader.exe\"";
-
-    BOOL ok = CreateProcessW(
-        NULL,           // lpApplicationName
-        cmdLine,        // lpCommandLine（可改成含參數）
-        NULL, NULL,
-        FALSE,
-        CREATE_NO_WINDOW,   // 不顯示黑視窗
-        NULL,
-        L"X:\\ImageLoader\\",            // ⭐ Working Directory（非常重要）
-        &si,
-        &pi
-    );
-
-    if (!ok) {
-        DWORD err = GetLastError();
-        // 這裡你可以記 log
-        return false;
+        /* 檢查usb槽內是否有x.img，沒有則進入BOOT_MODE */
+        rtn = DetectFile(XImagePath);
+        if (rtn == FILE_NOT_EXIST) {
+            rtn = BOOT_MODE;
+        }
+        else {
+            rtn = UPDATE_MODE;
+        }
     }
 
-    // 若你「不需要等 final.exe 結束」
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    return true;
+    return rtn;
 }
+
 
 bool LaunchTarget(const wchar_t* exePath,
     const wchar_t* workDir,
@@ -195,8 +171,8 @@ TODO:
     //檢查Register的設置是否都正確
     rtn = CheckRegister();
     if(rtn != 0){
-        ErrorMessage(REGISTER_CHECK_FAILED);
-        return -REGISTER_CHECK_FAILED;
+        ErrorMessage(BM_REGISTER_CHECK_FAILED);
+        return -BM_REGISTER_CHECK_FAILED;
 	}
 
     SetProgress(10);
@@ -214,8 +190,8 @@ TODO:
     }
 
     if(i == 3){
-        ErrorMessage(-GET_IMKEY_FAILED);
-        return -GET_IMKEY_FAILED;
+        ErrorMessage(-BM_GET_IMKEY_FAILED);
+        return -BM_GET_IMKEY_FAILED;
 	}
 
     SetProgress(20);
@@ -234,8 +210,8 @@ TODO:
         break;
 	}
     if(i == 3){
-        ErrorMessage(-TPM_DEC_FAILED);
-		return -TPM_DEC_FAILED;
+        ErrorMessage(-BM_TPM_DEC_FAILED);
+		return -BM_TPM_DEC_FAILED;
 	}
 
     SetProgress(30);
@@ -256,8 +232,8 @@ TODO:
         break;
 	}
     if(i == 3){
-        ErrorMessage(-GET_UUID_FAILED);
-		return -GET_UUID_FAILED;
+        ErrorMessage(-BM_GET_UUID_FAILED);
+		return -BM_GET_UUID_FAILED;
 	}
 
     SetProgress(50);
@@ -275,16 +251,16 @@ TODO:
 
     rtn = Aes256Decrypt(SerialNumberSha256, IV, IMKeyDe, IMKeyDeLen, PartitionKey, &PartitionKeyLen);
     if(rtn != 0){
-        ErrorMessage(-DEC_PARTITIONKEY_FAILED);
-        return -DEC_PARTITIONKEY_FAILED;
+        ErrorMessage(-BM_DEC_PARTITIONKEY_FAILED);
+        return -BM_DEC_PARTITIONKEY_FAILED;
 	}
 
     SetProgress(70);
 
     rtn = MountPartition(PartitionKey);
     if (rtn != 0) {
-        ErrorMessage(-MOUNT_FAILED);
-        return -MOUNT_FAILED;
+        ErrorMessage(-BM_MOUNT_FAILED);
+        return -BM_MOUNT_FAILED;
     }
 
     SetProgress(100);
@@ -296,6 +272,96 @@ int UpdateMode() {
 
     int rtn = 0;
 
+    Sleep(1000);
+
+    /* 取得usb掛載在哪一個槽 */
+    BYTE MountPath[128] = { 0 };
+    rtn = DetectUSBStorage(MountPath);
+    if (rtn != USB_STORAGE_DETECTED) {
+        ErrorMessage(-UM_USB_CHECK_FAILED);
+        return -UM_USB_CHECK_FAILED;
+    }
+
+    printf("MountPath = %s\n", MountPath);
+    
+    SetProgress(10);
+
+	BYTE XImagePath[128] = { 0 };
+    sprintf((char*)XImagePath, "%s:\\%s", MountPath, XIMAGE);
+
+    /* 檢查usb槽內是否有x.img */
+    rtn = DetectFile(XImagePath);
+    if(rtn != FILE_EXIST){
+        ErrorMessage(-UM_XIMAGE_NOT_FOUND);
+		return -UM_XIMAGE_NOT_FOUND;
+	}
+
+    SetProgress(15);
+
+    /* 取得USB槽內的x.img的md5，取得失敗則要跳錯 */
+	BYTE USBXImageMD5[16] = { 0 };
+    rtn = GetMD5(XImagePath, USBXImageMD5);
+    if (rtn != 0) {
+        ErrorMessage(-UM_GET_MD5_FAILED);
+		return -UM_GET_MD5_FAILED;
+    }
+
+    SetProgress(50);
+
+    /* 取得USB內x_md5.bin的數值 */
+    BYTE MD5[16] = { 0 };
+	BYTE XImageMd5Path[128] = { 0 };
+    sprintf((char*)XImageMd5Path, "%s:\\%s", MountPath, MD5_FILE);
+    rtn = ReadFromFile((const char*)XImageMd5Path, MD5, 16);
+    if (rtn != 0) {
+        ErrorMessage(-UM_GET_MD5_FAILED);
+        return -UM_GET_MD5_FAILED;
+    }
+
+    SetProgress(55);
+
+    /* 比對USBXImageMD5[]與MD5[]是否相同，若不相同則停止 */
+    if (memcmp(USBXImageMD5, MD5, sizeof(USBXImageMD5)) != 0) {
+        ErrorMessage(-UM_CHECK_MD5_FAILED);
+        return UM_GET_MD5_FAILED;
+    }
+
+    /* 檢查C槽內的x.img是否存在，若存在才去取得md5，若檔案不存在，則直接進行更新 */
+    rtn = DetectFile((BYTE *)LOCAL_XIMAGE_PATH);
+    if (rtn == FILE_EXIST) {
+
+        /* 取得C槽內的x.img md5 ，如果Return錯誤就直接進行更新 */
+        BYTE LocalXImageMD5[16] = { 0 };
+        rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
+        if (rtn == 0) {
+            /* 取得MD5成功，進行比對
+            /* 比對C槽內的x.img使否與USB內的x.img相同 */
+            /* 比對USBXImageMD5[]與LocalXImageMD5是否相同，若相同則不更新(代表檔案相同) */
+            if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) == 0) {
+                InfoMessage("Same Game, Please unplug usb storage");
+                return -UM_XIMAGE_SAME_MD5;
+            }
+        }
+
+        SetProgress(80);
+    }
+
+
+    /* 刪除C槽內的x.img檔案，不管有沒有刪除成功都繼續進行 */
+    RemoveFile((BYTE *)LOCAL_XIMAGE_PATH);
+
+    /* 複製usb內的x.im到C槽指定位置 */
+    rtn = CopyFile(XImagePath, (BYTE*)LOCAL_XIMAGE_PATH);
+    if(rtn != 0){
+        ErrorMessage(-M_XIMAGE_COPY_FAILED);
+		return -M_XIMAGE_COPY_FAILED; 
+	}
+
+    SetProgress(100);
+
+    /* 更新完成，跳出更新完成的視窗 */
+    InfoMessage("Update Completed, Please Reboot");
+
     return rtn;
 }
 
@@ -303,40 +369,60 @@ void WorkerThread(int mode)
 {
     int rtn = 0;
 
+
     if (!WaitForTPM(60)) {
         // TPM 1 分鐘還沒 ready → 直接 fail
-        ErrorMessage(-TPM_FAILED);
+        ErrorMessage(-BM_TPM_FAILED);
         return;
     }
+
 
     SetProgress(5);
 
     if (mode == BOOT_MODE) {
+        
         rtn = BootMode();
         if (rtn != 0) {
-            //ErrorMessage(rtn);
+
         }
     }
     else if (mode == UPDATE_MODE) {
-        SetProgress(5);
-        UpdateMode();
+
+        rtn = UpdateMode();
+        if (rtn != 0) {
+
+        }
     }
+
+    return;
 }
 
 int main(int argc, char* argv[])
 {
     int  ProcessMode;
 
-    FreeConsole();
+    //FreeConsole();
 
-    ProcessMode = GetProcessMode();
+    ProcessMode = GetMode();
 
     std::thread t(WorkerThread, ProcessMode);
     t.detach();   // 讓 thread 自己跑，不阻塞主程式
 
-    ShowProgress();
+    /* 在100%前，不會離開這支API */
+    ShowProgress(ProcessMode);
 
-    EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
+    if (ProcessMode == BOOT_MODE) {
+
+        printf("[%s][%d]\n", __func__, __LINE__);
+        EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
+    }
+    else {
+        printf("[%s][%d]\n", __func__, __LINE__);
+        while (true)
+        {
+            Sleep(1);
+        }
+    }
 
     return 0;
 }
