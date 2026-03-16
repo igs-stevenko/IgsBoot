@@ -60,5 +60,9 @@ int MountPartition(BYTE* key) {
 
 	printf("VeraCrypt exit code = %lu\n", exitCode);
 
+	if (exitCode != 0) {
+		return 2;
+	}
+
 	return 0;
 }
