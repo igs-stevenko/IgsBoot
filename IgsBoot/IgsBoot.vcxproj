@@ -145,6 +145,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClCompile Include="IgsBoot.cpp" />
     <ClCompile Include="Other.cpp" />
     <ClCompile Include="ProgressUI.cpp" />
+    <ClCompile Include="Reboot.cpp" />
     <ClCompile Include="Register.cpp" />
     <ClCompile Include="TPM.cpp" />
   </ItemGroup>
@@ -156,6 +157,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClInclude Include="IgsBoot.h" />
     <ClInclude Include="Other.h" />
     <ClInclude Include="ProgressUI.h" />
+    <ClInclude Include="Reboot.h" />
     <ClInclude Include="Register.h" />
     <ClInclude Include="TPM.h" />
   </ItemGroup>

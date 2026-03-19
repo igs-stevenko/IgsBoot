@@ -42,6 +42,9 @@
     <ClCompile Include="File.cpp">
       <Filter>來源檔案</Filter>
     </ClCompile>
+    <ClCompile Include="Reboot.cpp">
+      <Filter>來源檔案</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ProgressUI.h">
@@ -69,6 +72,9 @@
       <Filter>來源檔案</Filter>
     </ClInclude>
     <ClInclude Include="File.h">
+      <Filter>來源檔案</Filter>
+    </ClInclude>
+    <ClInclude Include="Reboot.h">
       <Filter>來源檔案</Filter>
     </ClInclude>
   </ItemGroup>

@@ -21,7 +21,7 @@ int MountPartition(BYTE* key) {
 		"/v \"C:\\Program Files (x86)\\IGS\\x.img\" "
 		"/l X "
 		"/p %s "
-		"/q /s /m rm",
+		"/q /s /m ro",
 		key   // 密碼直接塞進來
 	);
 

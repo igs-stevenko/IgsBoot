@@ -24,6 +24,7 @@
 #include "Other.h"
 #include "GameUpdate.h"
 #include "File.h"
+#include "Reboot.h"
 
 #pragma warning(disable:4996)
 #pragma comment(lib, "tbs.lib")
@@ -38,10 +39,11 @@
 #define MD5_FILE "x_md5.bin"
 #define LOCAL_XIMAGE_PATH "C:\\Program Files (x86)\\IGS\\x.img"
 
+int  ProcessMode;
 
-void ErrorMessage(int ErrorCode) {
+void ErrorMessage(int ErrorCode, int CodeLine) {
     
-    std::string msg = "E" + std::to_string(ErrorCode);
+    std::string msg = "E" + std::to_string(ErrorCode) + ":" + std::to_string(CodeLine);
 
     MessageBoxA(nullptr, msg.c_str(), "Debug", MB_OK);
 }
@@ -171,7 +173,7 @@ TODO:
     //檢查Register的設置是否都正確
     rtn = CheckRegister();
     if(rtn != 0){
-        ErrorMessage(BM_REGISTER_CHECK_FAILED);
+        ErrorMessage(BM_REGISTER_CHECK_FAILED, __LINE__);
         return -BM_REGISTER_CHECK_FAILED;
 	}
 
@@ -189,10 +191,11 @@ TODO:
         break;
     }
 
+
     if(i == 3){
-        ErrorMessage(-BM_GET_IMKEY_FAILED);
+        ErrorMessage(-BM_GET_IMKEY_FAILED, __LINE__);
         return -BM_GET_IMKEY_FAILED;
-	}
+	} 
 
     SetProgress(20);
 
@@ -210,7 +213,7 @@ TODO:
         break;
 	}
     if(i == 3){
-        ErrorMessage(-BM_TPM_DEC_FAILED);
+        ErrorMessage(-BM_TPM_DEC_FAILED, __LINE__);
 		return -BM_TPM_DEC_FAILED;
 	}
 
@@ -232,7 +235,7 @@ TODO:
         break;
 	}
     if(i == 3){
-        ErrorMessage(-BM_GET_UUID_FAILED);
+        ErrorMessage(-BM_GET_UUID_FAILED, __LINE__);
 		return -BM_GET_UUID_FAILED;
 	}
 
@@ -251,7 +254,7 @@ TODO:
 
     rtn = Aes256Decrypt(SerialNumberSha256, IV, IMKeyDe, IMKeyDeLen, PartitionKey, &PartitionKeyLen);
     if(rtn != 0){
-        ErrorMessage(-BM_DEC_PARTITIONKEY_FAILED);
+        ErrorMessage(-BM_DEC_PARTITIONKEY_FAILED, __LINE__);
         return -BM_DEC_PARTITIONKEY_FAILED;
 	}
 
@@ -259,7 +262,7 @@ TODO:
 
     rtn = MountPartition(PartitionKey);
     if (rtn != 0) {
-        ErrorMessage(-BM_MOUNT_FAILED);
+        ErrorMessage(-BM_MOUNT_FAILED, __LINE__);
         return -BM_MOUNT_FAILED;
     }
 
@@ -278,7 +281,7 @@ int UpdateMode() {
     BYTE MountPath[128] = { 0 };
     rtn = DetectUSBStorage(MountPath);
     if (rtn != USB_STORAGE_DETECTED) {
-        ErrorMessage(-UM_USB_CHECK_FAILED);
+        ErrorMessage(-UM_USB_CHECK_FAILED, __LINE__);
         return -UM_USB_CHECK_FAILED;
     }
 
@@ -292,21 +295,21 @@ int UpdateMode() {
     /* 檢查usb槽內是否有x.img */
     rtn = DetectFile(XImagePath);
     if(rtn != FILE_EXIST){
-        ErrorMessage(-UM_XIMAGE_NOT_FOUND);
+        ErrorMessage(-UM_XIMAGE_NOT_FOUND, __LINE__);
 		return -UM_XIMAGE_NOT_FOUND;
 	}
 
-    SetProgress(15);
+    SetProgress(20);
 
     /* 取得USB槽內的x.img的md5，取得失敗則要跳錯 */
 	BYTE USBXImageMD5[16] = { 0 };
     rtn = GetMD5(XImagePath, USBXImageMD5);
     if (rtn != 0) {
-        ErrorMessage(-UM_GET_MD5_FAILED);
+        ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
 		return -UM_GET_MD5_FAILED;
     }
 
-    SetProgress(50);
+    SetProgress(30);
 
     /* 取得USB內x_md5.bin的數值 */
     BYTE MD5[16] = { 0 };
@@ -314,15 +317,15 @@ int UpdateMode() {
     sprintf((char*)XImageMd5Path, "%s:\\%s", MountPath, MD5_FILE);
     rtn = ReadFromFile((const char*)XImageMd5Path, MD5, 16);
     if (rtn != 0) {
-        ErrorMessage(-UM_GET_MD5_FAILED);
+        ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
         return -UM_GET_MD5_FAILED;
     }
 
-    SetProgress(55);
+    SetProgress(50);
 
     /* 比對USBXImageMD5[]與MD5[]是否相同，若不相同則停止 */
     if (memcmp(USBXImageMD5, MD5, sizeof(USBXImageMD5)) != 0) {
-        ErrorMessage(-UM_CHECK_MD5_FAILED);
+        ErrorMessage(-UM_CHECK_MD5_FAILED, __LINE__);
         return UM_GET_MD5_FAILED;
     }
 
@@ -338,14 +341,14 @@ int UpdateMode() {
             /* 比對C槽內的x.img使否與USB內的x.img相同 */
             /* 比對USBXImageMD5[]與LocalXImageMD5是否相同，若相同則不更新(代表檔案相同) */
             if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) == 0) {
-                InfoMessage("Same Game, Please unplug usb storage");
                 return -UM_XIMAGE_SAME_MD5;
             }
         }
 
-        SetProgress(80);
+        SetProgress(60);
     }
 
+    SetProgress(60);
 
     /* 刪除C槽內的x.img檔案，不管有沒有刪除成功都繼續進行 */
     RemoveFile((BYTE *)LOCAL_XIMAGE_PATH);
@@ -353,14 +356,31 @@ int UpdateMode() {
     /* 複製usb內的x.im到C槽指定位置 */
     rtn = CopyFile(XImagePath, (BYTE*)LOCAL_XIMAGE_PATH);
     if(rtn != 0){
-        ErrorMessage(-M_XIMAGE_COPY_FAILED);
+        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
 		return -M_XIMAGE_COPY_FAILED; 
 	}
+
+    SetProgress(80);
+
+    BYTE LocalXImageMD5[16] = { 0 };
+    rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
+    if (rtn != 0) {
+        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
+        return -M_XIMAGE_COPY_FAILED;
+    }
+
+    SetProgress(90);
+
+    if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) != 0) {
+        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
+        return -M_XIMAGE_COPY_FAILED;
+    }
 
     SetProgress(100);
 
     /* 更新完成，跳出更新完成的視窗 */
-    InfoMessage("Update Completed, Please Reboot");
+    Reboot();
+    //InfoMessage("Update Completed, Please Reboot");
 
     return rtn;
 }
@@ -372,7 +392,7 @@ void WorkerThread(int mode)
 
     if (!WaitForTPM(60)) {
         // TPM 1 分鐘還沒 ready → 直接 fail
-        ErrorMessage(-BM_TPM_FAILED);
+        ErrorMessage(-BM_TPM_FAILED, __LINE__);
         return;
     }
 
@@ -389,8 +409,12 @@ void WorkerThread(int mode)
     else if (mode == UPDATE_MODE) {
 
         rtn = UpdateMode();
-        if (rtn != 0) {
-
+        if (rtn == -UM_XIMAGE_SAME_MD5) {
+            /* 如果更新碟遊戲與C槽遊戲相同 */
+            ProcessMode = BOOT_MODE;
+            ChangeTitle(TEXT("Game Loading"));
+            BootMode();
+            
         }
     }
 
@@ -399,9 +423,8 @@ void WorkerThread(int mode)
 
 int main(int argc, char* argv[])
 {
-    int  ProcessMode;
 
-    //FreeConsole();
+    FreeConsole();
 
     ProcessMode = GetMode();
 
@@ -413,7 +436,7 @@ int main(int argc, char* argv[])
 
     if (ProcessMode == BOOT_MODE) {
 
-        printf("[%s][%d]\n", __func__, __LINE__);
+        //printf("[%s][%d]\n", __func__, __LINE__);
         EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
     }
     else {

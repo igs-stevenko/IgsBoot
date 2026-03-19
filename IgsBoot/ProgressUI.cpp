@@ -95,6 +95,10 @@ void SetProgress(DWORD percent)
 	PostMessageW(hWnd, UPDATE_PERCENT, percent, 0);
 }
 
+void ChangeTitle(const wchar_t* title) {
+	SetWindowTextW(hWnd, title);
+}
+
 
 void ShowProgress(DWORD Mode) {
 
