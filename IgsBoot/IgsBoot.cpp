@@ -204,7 +204,7 @@ TODO:
 
     //TPM 也加入Retry 3次的機制
     for(i = 0; i < 3; i++) {
-        rtn = TPMUseKeyDec("IGSCardKey", IMKeyEn, IMKeyEnLen, IMKeyDe, &IMKeyDeLen);
+        rtn = TPMUseKeyDec("OCP", IMKeyEn, IMKeyEnLen, IMKeyDe, &IMKeyDeLen);
         if(rtn != 0){
             Sleep(1000); // 等待 1 秒後重試
             continue;
@@ -244,8 +244,8 @@ TODO:
     BYTE SerialNumberSha256[32] = { 0x0 };
     SHA256(SerialNumber, SerialNumberLen, SerialNumberSha256);
 
-    BYTE IV[16] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-                    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f 
+    BYTE IV[16] = { 0xA7,0x3C,0x91,0xF2,0x5D,0x8E,0x47,0x1B,
+                    0xC9,0x22,0x6F,0xD4,0x0A,0xB8,0x73,0x5E
                   };
 
     /* 磁碟中介Key(明)使用AES解密後，會變成32Bytes的磁碟Key，是一個字串，所以實質上的array是33bytes */
