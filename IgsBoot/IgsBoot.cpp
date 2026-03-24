@@ -356,8 +356,8 @@ int UpdateMode() {
     /* 複製usb內的x.im到C槽指定位置 */
     rtn = CopyFile(XImagePath, (BYTE*)LOCAL_XIMAGE_PATH);
     if(rtn != 0){
-        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
-		return -M_XIMAGE_COPY_FAILED; 
+        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
+		return -UM_XIMAGE_COPY_FAILED; 
 	}
 
     SetProgress(80);
@@ -365,15 +365,15 @@ int UpdateMode() {
     BYTE LocalXImageMD5[16] = { 0 };
     rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
     if (rtn != 0) {
-        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
-        return -M_XIMAGE_COPY_FAILED;
+        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
+        return -UM_XIMAGE_COPY_FAILED;
     }
 
     SetProgress(90);
 
     if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) != 0) {
-        ErrorMessage(-M_XIMAGE_COPY_FAILED, __LINE__);
-        return -M_XIMAGE_COPY_FAILED;
+        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
+        return -UM_XIMAGE_COPY_FAILED;
     }
 
     SetProgress(100);
