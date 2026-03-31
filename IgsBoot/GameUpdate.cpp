@@ -38,7 +38,7 @@ bool FileExists(const char* FilePath)
 
     if (attr == INVALID_FILE_ATTRIBUTES)
     {
-        printf("Error Code: %lu\n", GetLastError());
+        //printf("Error Code: %lu\n", GetLastError());
         return false;
     }
 

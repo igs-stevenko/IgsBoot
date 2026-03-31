@@ -8,6 +8,8 @@ void InitProgressBar(HWND hWnd);
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void SetProgress(DWORD percent);
 void ShowProgress(DWORD Mode);
-void ChangeTitle(const wchar_t* title);
+void DestoryProgress();
+void SetProgressText(const wchar_t* title);
+
 
 #endif

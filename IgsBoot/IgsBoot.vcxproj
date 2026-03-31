@@ -148,6 +148,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClCompile Include="Reboot.cpp" />
     <ClCompile Include="Register.cpp" />
     <ClCompile Include="TPM.cpp" />
+    <ClCompile Include="Usb.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Calculation.h" />
@@ -160,6 +161,7 @@ copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
     <ClInclude Include="Reboot.h" />
     <ClInclude Include="Register.h" />
     <ClInclude Include="TPM.h" />
+    <ClInclude Include="Usb.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
