@@ -77,6 +77,10 @@ bool GetFirstUSBMountedPath(BYTE* Path)
 
         PSP_DEVICE_INTERFACE_DETAIL_DATA detail =
             (PSP_DEVICE_INTERFACE_DETAIL_DATA)malloc(requiredSize);
+		if (detail == NULL) {
+            SetupDiDestroyDeviceInfoList(hDevInfo);
+            return false;
+        }
 
         detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
 

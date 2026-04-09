@@ -60,28 +60,6 @@ void UI_SetStop() {
     UI_Stop = 1;
 }
 
-void ErrorMessage(int ErrorCode, int CodeLine) {
-    
-    Sleep(2000);
-    UI_SetStop();
-
-    std::string msg = "E" + std::to_string(ErrorCode) + ":" + std::to_string(CodeLine);
-
-    MessageBoxA(nullptr, msg.c_str(), "Error", MB_OK);
-}
-
-void InfoMessage(const char *Info) {
-
-    std::string msg = Info;
-
-    MessageBoxA(nullptr, msg.c_str(), "INFO", MB_OK);
-}
-
-DWORD WINAPI MsgThread(LPVOID lpParam) {
-    MessageBoxA(NULL, "Update Completed", "INFO", MB_OK | MB_TOPMOST);
-    return 0;
-}
-
 void print_hex(unsigned char* buf, int len) {
 
     int i = 0;
@@ -224,6 +202,7 @@ int BootMode() {
 
     // TPM 1 分鐘還沒 ready → 直接 fail
     if (!WaitForTPM(60)) {
+        UI_SetStop();
         ErrorMessage(-BM_TPM_FAILED, __LINE__);
         return -BM_TPM_FAILED;
     }
@@ -244,6 +223,7 @@ int BootMode() {
     }
 
     if(i == 3){
+        UI_SetStop();
         ErrorMessage(-BM_GET_IMKEY_FAILED, __LINE__);
         return -BM_GET_IMKEY_FAILED;
 	} 
@@ -263,6 +243,7 @@ int BootMode() {
         break;
 	}
     if(i == 3){
+        UI_SetStop();
         ErrorMessage(-BM_TPM_DEC_FAILED, __LINE__);
 		return -BM_TPM_DEC_FAILED;
 	}
@@ -285,6 +266,7 @@ int BootMode() {
         break;
 	}
     if(i == 3){
+        UI_SetStop();
         ErrorMessage(-BM_GET_UUID_FAILED, __LINE__);
 		return -BM_GET_UUID_FAILED;
 	}
@@ -304,6 +286,7 @@ int BootMode() {
 
     rtn = Aes256Decrypt(SerialNumberSha256, IV, IMKeyDe, IMKeyDeLen, PartitionKey, &PartitionKeyLen);
     if(rtn != 0){
+        UI_SetStop();
         ErrorMessage(-BM_DEC_PARTITIONKEY_FAILED, __LINE__);
         return -BM_DEC_PARTITIONKEY_FAILED;
 	}
@@ -312,6 +295,7 @@ int BootMode() {
 
     rtn = MountPartition(PartitionKey);
     if (rtn != 0) {
+        UI_SetStop();
         ErrorMessage(-BM_MOUNT_FAILED, __LINE__);
         return -BM_MOUNT_FAILED;
     }
@@ -320,6 +304,96 @@ int BootMode() {
 
     /* 啟動遊戲 */
     EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
+
+    return rtn;
+}
+
+int TryMountUsbXImg(BYTE *XImagePath) {
+
+    int rtn = 0;
+    int i = 0;
+
+    /* IMKeyEnLen是磁碟中介Key(密)，因為經過TPM加密，所以長度是256 Bytes
+       IMKeyDeLen是磁碟中介Key(明)，Array長度開出256bytes是因為解密時需要這麼大的空間，而實際上只有48Bytes是有效值 */
+    BYTE IMKeyEn[256] = { 0x00 };
+    BYTE IMKeyDe[256] = { 0x00 };
+    DWORD IMKeyEnLen = sizeof(IMKeyEn);
+    DWORD IMKeyDeLen = sizeof(IMKeyDe);
+
+
+    // TPM 1 分鐘還沒 ready → 直接 fail
+    if (!WaitForTPM(60)) {
+        return -1;
+    }
+
+
+    //每個與實體Device通訊的地方都要加上Retry
+    //EEPROM Retry 3次
+    for (i = 0; i < 3; i++) {
+        rtn = ReadIMKeyEnFromEEProm(IMKeyEn, IMKeyEnLen);
+        if (rtn != 0) {
+            Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+
+        break;
+    }
+
+    if (i == 3) {
+        return -2;
+    }
+
+    //TPM 也加入Retry 3次的機制
+    for (i = 0; i < 3; i++) {
+        rtn = TPMUseKeyDec("OCP", IMKeyEn, IMKeyEnLen, IMKeyDe, &IMKeyDeLen);
+        if (rtn != 0) {
+            Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+
+        break;
+    }
+    if (i == 3) {
+        return -3;
+    }
+
+
+    BYTE SerialNumber[256] = { 0x00 };
+    DWORD SerialNumberLen = 0;
+
+
+    for (i = 0; i < 3; i++) {
+        rtn = GetLabelSerialNumber(SerialNumber, &SerialNumberLen);
+        if (rtn != 0) {
+            Sleep(1000); // 等待 1 秒後重試
+            continue;
+        }
+        break;
+    }
+    if (i == 3) {
+        return -4;
+    }
+
+    BYTE SerialNumberSha256[32] = { 0x0 };
+    SHA256(SerialNumber, SerialNumberLen, SerialNumberSha256);
+
+    BYTE IV[16] = { 0xA7,0x3C,0x91,0xF2,0x5D,0x8E,0x47,0x1B,
+                    0xC9,0x22,0x6F,0xD4,0x0A,0xB8,0x73,0x5E
+    };
+
+    /* 磁碟中介Key(明)使用AES解密後，會變成32Bytes的磁碟Key，是一個字串，所以實質上的array是33bytes */
+    BYTE PartitionKey[33] = { 0x00 };
+    DWORD PartitionKeyLen = 0;
+
+    rtn = Aes256Decrypt(SerialNumberSha256, IV, IMKeyDe, IMKeyDeLen, PartitionKey, &PartitionKeyLen);
+    if (rtn != 0) {
+        return -5;
+    }
+
+    rtn = MountPartitionU(PartitionKey, XImagePath);
+    if (rtn != 0) {
+        return -6;
+    }
 
     return rtn;
 }
@@ -336,9 +410,31 @@ int UpdateMode() {
     /* 檢查usb槽內是否有x.img */
     rtn = DetectFile(XImagePath);
     if(rtn != FILE_EXIST){
+        UI_SetStop();
         ErrorMessage(-UM_XIMAGE_NOT_FOUND, __LINE__);
 		return -UM_XIMAGE_NOT_FOUND;
 	}
+
+    /* 嘗試使用現在機器上的Key去掛起這個x.img，若掛不起來則代表不匹配，不進行更新 */
+    rtn = TryMountUsbXImg(XImagePath);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-UM_XIMAGE_MOUNT_ERRER, __LINE__);
+		return -UM_XIMAGE_MOUNT_ERRER;
+    }
+
+    /* 若掛載成功後，Delay一下在進行卸載 */
+    Sleep(1000);
+
+    /* 卸載X槽 */
+	rtn = UnMountPartitionX();
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-UM_XIMAGE_UNMOUNT_ERRER, __LINE__);
+        return -UM_XIMAGE_UNMOUNT_ERRER;
+    }
+
+    Sleep(1000);
 
     UI_SetPercent(5, 10);
 
@@ -348,6 +444,7 @@ int UpdateMode() {
     sprintf((char*)XImageMd5Path, "%s%s", MountPath, MD5_FILE);
     rtn = ReadFromFile((const char*)XImageMd5Path, MD5, 16);
     if (rtn != 0) {
+        UI_SetStop();
         ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
         return -UM_GET_MD5_FAILED;
     }
@@ -358,6 +455,7 @@ int UpdateMode() {
 	BYTE USBXImageMD5[16] = { 0 };
     rtn = GetMD5(XImagePath, USBXImageMD5);
     if (rtn != 0) {
+        UI_SetStop();
         ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
 		return -UM_GET_MD5_FAILED;
     }
@@ -366,6 +464,7 @@ int UpdateMode() {
 
     /* 比對USBXImageMD5[]與MD5[]是否相同，若不相同則停止 */
     if (memcmp(USBXImageMD5, MD5, sizeof(USBXImageMD5)) != 0) {
+        UI_SetStop();
         ErrorMessage(-UM_CHECK_MD5_FAILED, __LINE__);
         return UM_GET_MD5_FAILED;
     }
@@ -397,6 +496,7 @@ int UpdateMode() {
     /* 複製usb內的x.im到C槽指定位置 */
     rtn = CopyFile(XImagePath, (BYTE*)LOCAL_XIMAGE_PATH);
     if(rtn != 0){
+        UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
 		return -UM_XIMAGE_COPY_FAILED; 
 	}
@@ -406,6 +506,7 @@ int UpdateMode() {
     BYTE LocalXImageMD5[16] = { 0 };
     rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
     if (rtn != 0) {
+        UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
         return -UM_XIMAGE_COPY_FAILED;
     }
@@ -413,6 +514,7 @@ int UpdateMode() {
     UI_SetPercent(95, 99);
 
     if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) != 0) {
+        UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
         return -UM_XIMAGE_COPY_FAILED;
     }

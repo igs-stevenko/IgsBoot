@@ -15,5 +15,7 @@
 #include <thread>
 
 int MountPartition(BYTE* key);
+int MountPartitionU(BYTE* key, BYTE* path);
+int UnMountPartitionX(void);
 
 #endif

@@ -10,6 +10,9 @@ void SetProgress(DWORD percent);
 void ShowProgress(DWORD Mode);
 void DestoryProgress();
 void SetProgressText(const wchar_t* title);
+void ErrorMessage(int ErrorCode, int CodeLine);
+void InfoMessage(const char* Info);
+DWORD WINAPI MsgThread(LPVOID lpParam);
 
 
 #endif

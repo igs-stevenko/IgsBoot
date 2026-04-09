@@ -24,6 +24,25 @@ int progressValue = 0;
 #define UPDATE_PERCENT (WM_APP + 1)
 #define WM_UPDATE_TEXT (WM_APP + 2)
 
+void ErrorMessage(int ErrorCode, int CodeLine) {
+
+	std::string msg = "E" + std::to_string(ErrorCode) + ":" + std::to_string(CodeLine);
+
+	MessageBoxA(hWnd, msg.c_str(), "Error", MB_OK | MB_TOPMOST);
+}
+
+void InfoMessage(const char* Info) {
+
+	std::string msg = Info;
+
+	MessageBoxA(hWnd, msg.c_str(), "INFO", MB_OK | MB_TOPMOST);
+}
+
+DWORD WINAPI MsgThread(LPVOID lpParam) {
+	MessageBoxA(hWnd, "Update Completed", "INFO", MB_OK | MB_TOPMOST);
+	return 0;
+}
+
 void InitProgressBar(HWND hWnd)
 {
 	INITCOMMONCONTROLSEX icex;
