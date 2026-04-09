@@ -26,26 +26,103 @@
 
 #pragma warning(disable:4996)
 
+#define INSIDE_USB_LOCATION_DOWN "PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(1)#USB(1)"
+#define INSIDE_USB_LOCATION_UP "PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(1)#USB(2)"
 
 // ----------------------------
 // 判斷是否 USB Storage
 // ----------------------------
-bool IsMassStorage(HDEVINFO hDevInfo, SP_DEVINFO_DATA* dev)
+bool IsUsbStorage(HDEVINFO hDevInfo, SP_DEVINFO_DATA* dev)
 {
-    char buf[512] = { 0 };
+    SP_DEVICE_INTERFACE_DATA ifData = { 0 };
+    ifData.cbSize = sizeof(ifData);
 
-    if (!SetupDiGetDeviceRegistryPropertyA(
-        hDevInfo, dev,
-        SPDRP_COMPATIBLEIDS,
+    HDEVINFO hIfInfo = SetupDiGetClassDevs(
+        &GUID_DEVINTERFACE_DISK,
         NULL,
-        (PBYTE)buf,
-        sizeof(buf),
-        NULL))
+        NULL,
+        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+
+    if (hIfInfo == INVALID_HANDLE_VALUE)
         return false;
 
-    return strstr(buf, "Class_08") != NULL;
-}
+    bool foundUsb = false;
 
+    for (DWORD i = 0;
+        SetupDiEnumDeviceInterfaces(hIfInfo, NULL, &GUID_DEVINTERFACE_DISK, i, &ifData);
+        i++)
+    {
+        DWORD requiredSize = 0;
+        SetupDiGetDeviceInterfaceDetailA(hIfInfo, &ifData, NULL, 0, &requiredSize, NULL);
+
+        PSP_DEVICE_INTERFACE_DETAIL_DATA_A detail =
+            (PSP_DEVICE_INTERFACE_DETAIL_DATA_A)malloc(requiredSize);
+
+        if (!detail)
+            continue;
+
+        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
+
+        if (SetupDiGetDeviceInterfaceDetailA(
+            hIfInfo,
+            &ifData,
+            detail,
+            requiredSize,
+            NULL,
+            NULL))
+        {
+            HANDLE hDevice = CreateFileA(
+                detail->DevicePath,
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                NULL,
+                OPEN_EXISTING,
+                0,
+                NULL);
+
+            if (hDevice != INVALID_HANDLE_VALUE)
+            {
+                STORAGE_PROPERTY_QUERY query;
+                memset(&query, 0, sizeof(query));
+                query.PropertyId = StorageDeviceProperty;
+                query.QueryType = PropertyStandardQuery;
+
+                BYTE buffer[512] = { 0 };
+                DWORD bytes = 0;
+
+                if (DeviceIoControl(
+                    hDevice,
+                    IOCTL_STORAGE_QUERY_PROPERTY,
+                    &query,
+                    sizeof(query),
+                    buffer,
+                    sizeof(buffer),
+                    &bytes,
+                    NULL))
+                {
+                    STORAGE_DEVICE_DESCRIPTOR* desc =
+                        (STORAGE_DEVICE_DESCRIPTOR*)buffer;
+
+                    if (desc->BusType == BusTypeUsb)
+                    {
+                        foundUsb = true; // ✅ 有 USB disk
+                        CloseHandle(hDevice);
+                        free(detail);
+                        break;
+                    }
+                }
+
+                CloseHandle(hDevice);
+            }
+        }
+
+        free(detail);
+    }
+
+    SetupDiDestroyDeviceInfoList(hIfInfo);
+
+    return foundUsb;
+}
 // ----------------------------
 // 解析 VID / PID
 // ----------------------------
@@ -155,176 +232,6 @@ std::string FindDriveLetterFromPhysicalDrive(int physicalDrive)
     return result;  // 最後才 fallback
 }
 
-// ----------------------------
-// 主流程
-// ----------------------------
-void EnumerateUsbStorage()
-{
-    HDEVINFO usbInfo = SetupDiGetClassDevs(
-        &GUID_DEVCLASS_USB,
-        NULL,
-        NULL,
-        DIGCF_PRESENT);
-
-    SP_DEVINFO_DATA usbDev;
-    usbDev.cbSize = sizeof(SP_DEVINFO_DATA);
-
-    for (DWORD i = 0; SetupDiEnumDeviceInfo(usbInfo, i, &usbDev); i++) {
-
-        if (!IsMassStorage(usbInfo, &usbDev))
-            continue;
-
-        // Location
-        char location[512] = { 0 };
-        SetupDiGetDeviceRegistryPropertyA(
-            usbInfo,
-            &usbDev,
-            SPDRP_LOCATION_PATHS,
-            NULL,
-            (PBYTE)location,
-            sizeof(location),
-            NULL);
-
-        // VID / PID
-        char hwid[512] = { 0 };
-        SetupDiGetDeviceRegistryPropertyA(
-            usbInfo,
-            &usbDev,
-            SPDRP_HARDWAREID,
-            NULL,
-            (PBYTE)hwid,
-            sizeof(hwid),
-            NULL);
-
-        std::string vid, pid;
-        ParseVidPid(hwid, vid, pid);
-
-        // Container ID
-        GUID usbGuid;
-        if (!GetContainerId(usbInfo, &usbDev, usbGuid))
-            continue;
-        
-        /*
-        printf("USB Storage Found\n");
-        printf("  Location : %s\n", location);
-        printf("  VID/PID  : %s / %s\n", vid.c_str(), pid.c_str());
-        */
-
-        // ----------------------------
-        // Disk devices
-        // ----------------------------
-        HDEVINFO diskInfo = SetupDiGetClassDevs(
-            &GUID_DEVINTERFACE_DISK,
-            NULL,
-            NULL,
-            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-
-        SP_DEVICE_INTERFACE_DATA ifData;
-        ifData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-
-        for (DWORD j = 0; SetupDiEnumDeviceInterfaces(
-            diskInfo, NULL,
-            &GUID_DEVINTERFACE_DISK, j, &ifData); j++)
-        {
-            DWORD required = 0;
-
-            SetupDiGetDeviceInterfaceDetail(
-                diskInfo, &ifData,
-                NULL, 0,
-                &required,
-                NULL);
-
-            auto detail =
-                (PSP_DEVICE_INTERFACE_DETAIL_DATA_A)malloc(required);
-
-            detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
-
-            SP_DEVINFO_DATA diskDev;
-            diskDev.cbSize = sizeof(SP_DEVINFO_DATA);
-
-            if (!SetupDiGetDeviceInterfaceDetailA(
-                diskInfo,
-                &ifData,
-                detail,
-                required,
-                NULL,
-                &diskDev))
-            {
-                free(detail);
-                continue;
-            }
-
-            GUID diskGuid;
-            if (!GetContainerId(diskInfo, &diskDev, diskGuid)) {
-                free(detail);
-                continue;
-            }
-
-            // 🔥 Container ID match
-            if (memcmp(&usbGuid, &diskGuid, sizeof(GUID)) != 0) {
-                free(detail);
-                continue;
-            }
-
-            // 取得 PhysicalDrive
-            HANDLE hDisk = CreateFileA(
-                detail->DevicePath,
-                0,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                NULL,
-                OPEN_EXISTING,
-                0,
-                NULL);
-
-            if (hDisk == INVALID_HANDLE_VALUE) {
-                free(detail);
-                continue;
-            }
-
-            STORAGE_DEVICE_NUMBER sdn;
-            DWORD bytes;
-
-            if (!DeviceIoControl(
-                hDisk,
-                IOCTL_STORAGE_GET_DEVICE_NUMBER,
-                NULL, 0,
-                &sdn, sizeof(sdn),
-                &bytes,
-                NULL))
-            {
-                CloseHandle(hDisk);
-                free(detail);
-                continue;
-            }
-
-            CloseHandle(hDisk);
-
-            int physicalDrive = sdn.DeviceNumber;
-
-            //printf("  PhysicalDrive: %d\n", physicalDrive);
-
-            // 找 Drive
-            std::string drive =
-                FindDriveLetterFromPhysicalDrive(physicalDrive);
-
-            /*
-            if (!drive.empty())
-                printf("  Drive    : %s\n", drive.c_str());
-            else
-                printf("  Drive    : (not found)\n");
-            */
-
-            free(detail);
-        }
-
-        SetupDiDestroyDeviceInfoList(diskInfo);
-
-        printf("\n");
-    }
-
-    SetupDiDestroyDeviceInfoList(usbInfo);
-}
-
 
 int ScanInsideUsbDisk(struct InsideUsbInfo *UsbInfo) {
 
@@ -339,7 +246,7 @@ int ScanInsideUsbDisk(struct InsideUsbInfo *UsbInfo) {
 
     for (DWORD i = 0; SetupDiEnumDeviceInfo(usbInfo, i, &usbDev); i++) {
 
-        if (!IsMassStorage(usbInfo, &usbDev))
+        if (!IsUsbStorage(usbInfo, &usbDev))
             continue;
 
         // Location
@@ -379,9 +286,9 @@ int ScanInsideUsbDisk(struct InsideUsbInfo *UsbInfo) {
         }
 
 
-        //printf("USB Storage Found\n");
-        //printf("  Location : %s\n", location);
-        //printf("  VID/PID  : %s / %s\n", vid.c_str(), pid.c_str());
+        printf("USB Storage Found\n");
+        printf("  Location : %s\n", location);
+        printf("  VID/PID  : %s / %s\n", vid.c_str(), pid.c_str());
 
         // ----------------------------
         // Disk devices
@@ -528,7 +435,7 @@ void ListUsbInfo(struct InsideUsbInfo* UsbInfo) {
     
     if (UsbInfo->PortUp_found) {
         printf("UsbDisk found in up port\n");
-        printf("mount path : %s\n", UsbInfo->PortDown_mountpath);
+        printf("mount path : %s\n", UsbInfo->PortUp_mountpath);
     }
 
 }
