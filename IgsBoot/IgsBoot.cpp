@@ -303,6 +303,8 @@ int BootMode() {
     UI_SetPercent(99, 100);
 
     /* 啟動遊戲 */
+    // Let the game (Unity) own the foreground; keep this process alive in background.
+    HideProgress();
     EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
 
     return rtn;
@@ -536,7 +538,7 @@ int UpdateMode() {
 void GenUIThread(int mode)
 {
     int rtn = 0;
-
+    SetProgressBackgroundImagePath(L"C:\\Program Files (x86)\\IGS\\test.png");
     ShowProgress(ProcessMode);
 }
 
@@ -602,18 +604,20 @@ void UIThread(int mode) {
 
             SetProgress(NowPercent);
 
-            if (NowPercent < TargetPercent) {
-                NowPercent++;
-            }
-
             if (NowPercent >= 100) {
                 NowPercent = 100;
                 if (ProcessMode == BOOT_MODE) {
                     SetProgressText(TEXT("Game Start"));
+                    UI_SetStop();
                 }
                 else {
 					SetProgressText(TEXT("Update Completed"));
+                    UI_SetStop();
                 }
+            }
+
+            if (NowPercent < TargetPercent) {
+                NowPercent++;
             }
         }
 
