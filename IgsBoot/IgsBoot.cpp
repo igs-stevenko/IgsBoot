@@ -192,13 +192,13 @@ int BootMode() {
 
     UI_SetPercent(0, 10);
     //檢查Register的設置是否都正確 
-    /*
     rtn = CheckRegister();
     if(rtn != 0){
         ErrorMessage(BM_REGISTER_CHECK_FAILED, __LINE__);
+        Sleep(2000); // 等待錯誤訊息顯示
+        UI_SetStop();
         return -BM_REGISTER_CHECK_FAILED;
 	}
-    */
 
     // TPM 1 分鐘還沒 ready → 直接 fail
     if (!WaitForTPM(60)) {
@@ -640,7 +640,12 @@ int main(int argc, char* argv[])
     std::thread t(GenUIThread, ProcessMode);
     t.detach();   // 讓 thread 自己跑，不阻塞主程式
 
-    Sleep(1000);
+    // Wait for window to be fully created and message loop running
+    // (LoadSequenceFrames may take a few seconds for pre-scaling)
+    while (!hWnd || !IsWindow(hWnd)) {
+        Sleep(100);
+    }
+    Sleep(500); // extra buffer for message loop to start
 
     std::thread pr(UIThread, 0);
     pr.detach();   // 讓 thread 自己跑，不阻塞主程式

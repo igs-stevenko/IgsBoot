@@ -16,6 +16,7 @@
 #include <algorithm>
 
 #include "IgsBoot.h"
+#include "GitVersion.h"
 
 // GDI+ (for background image)
 #pragma comment(lib, "gdiplus.lib")
@@ -199,6 +200,10 @@ void SetProgressBackgroundSequence(const wchar_t* folderPath, int fps)
 
 void ErrorMessage(int ErrorCode, int CodeLine) {
 	std::wstring msg = L"E" + std::to_wstring(ErrorCode) + L":" + std::to_wstring(CodeLine);
+	// Set banner directly (thread-safe for simple assignment)
+	g_bannerText = msg;
+	g_bannerIsError = true;
+	// Also try PostMessage for proper repaint
 	PostBannerText(msg, true);
 }
 
@@ -380,7 +385,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		{
 			Gdiplus::REAL bannerFontSize = (h < 800) ? 36.0f : 56.0f;
 			Gdiplus::Font bannerFontAdj(&family, bannerFontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-			Gdiplus::RectF bannerRect(0.0f, (Gdiplus::REAL)bannerTop, (Gdiplus::REAL)w, (Gdiplus::REAL)(regionH * 25 / 100));
+			// Show banner above the title text, within the UI region
+			int bannerY = titleTop - (int)(bannerFontSize * 1.5f);
+			Gdiplus::RectF bannerRect(0.0f, (Gdiplus::REAL)bannerY, (Gdiplus::REAL)w, (Gdiplus::REAL)(bannerFontSize * 1.4f));
 			Gdiplus::SolidBrush* bannerBrush = g_bannerIsError ? &bannerError : &bannerInfo;
 			g.DrawString(g_bannerText.c_str(), -1, &bannerFontAdj, bannerRect, &center, bannerBrush);
 		}
@@ -427,6 +434,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			Gdiplus::GraphicsPath fillPath;
 			addRoundRect(fillPath, fillRect, 9.0f);
 			g.FillPath(&barFill, &fillPath);
+		}
+
+		// Draw git version in bottom-right corner
+		{
+			wchar_t verBuf[64];
+			swprintf(verBuf, 64, L"v%hs", GIT_VERSION);
+			Gdiplus::Font verFont(&family, 14.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+			Gdiplus::SolidBrush verBrush(Gdiplus::Color(120, 255, 255, 255));
+			Gdiplus::StringFormat rightAlign;
+			rightAlign.SetAlignment(Gdiplus::StringAlignmentFar);
+			rightAlign.SetLineAlignment(Gdiplus::StringAlignmentFar);
+			Gdiplus::RectF verRect(0.0f, 0.0f, (Gdiplus::REAL)(w - 10), (Gdiplus::REAL)(h - 10));
+			g.DrawString(verBuf, -1, &verFont, verRect, &rightAlign, &verBrush);
 		}
 
 		// Present buffer

@@ -136,6 +136,13 @@ copy /Y "$(ProjectDir)libs\qsys.dll" "$(TargetDir)"
 copy /Y "$(ProjectDir)libs\hasp_windows_x64_114533.dll" "$(TargetDir)"
 </Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>cd "$(ProjectDir).."
+for /f %%i in ('git rev-parse --short HEAD 2^>nul') do set GIT_HASH=%%i
+if not defined GIT_HASH set GIT_HASH=unknown
+echo #define GIT_VERSION "%GIT_HASH%" &gt; "$(ProjectDir)GitVersion.h"
+</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Calculation.cpp" />
