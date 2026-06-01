@@ -17,6 +17,7 @@ void ErrorMessage(int ErrorCode, int CodeLine);
 void InfoMessage(const char* Info);
 DWORD WINAPI MsgThread(LPVOID lpParam);
 void SetProgressBackgroundImagePath(const wchar_t* path);
+void SetProgressBackgroundSequence(const wchar_t* folderPath, int fps);
 
 
 #endif

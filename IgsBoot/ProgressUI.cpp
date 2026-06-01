@@ -13,6 +13,7 @@
 #include <thread>
 #include <gdiplus.h>
 #include <memory>
+#include <algorithm>
 
 #include "IgsBoot.h"
 
@@ -27,10 +28,19 @@ int progressValue = 0;
 #define UPDATE_PERCENT (WM_APP + 1)
 #define WM_UPDATE_TEXT (WM_APP + 2)
 #define WM_SET_BANNER (WM_APP + 3)
+#define WM_ANIM_TIMER_ID 1001
 
 static ULONG_PTR g_gdiplusToken = 0;
-static std::wstring g_backgroundImagePath; // optional: load from file path
-static std::unique_ptr<Gdiplus::Image> g_backgroundImage;
+static std::wstring g_backgroundImagePath; // single image path (legacy)
+static std::unique_ptr<Gdiplus::Image> g_backgroundImage; // single image (legacy)
+
+// PNG sequence animation
+static std::wstring g_sequenceFolderPath;          // folder containing PNG frames
+static std::vector<std::unique_ptr<Gdiplus::Image>> g_frames; // loaded frames
+static int g_currentFrame = 0;                     // current frame index
+static int g_frameIntervalMs = 33;                 // ~30 FPS by default
+static DWORD g_lastFrameTime = 0;                  // timestamp of last frame advance
+
 static std::wstring g_titleText = L"Loading ..";
 static std::wstring g_bannerText;
 static bool g_bannerIsError = false;
@@ -49,7 +59,6 @@ static void PostBannerText(const std::wstring& text, bool isError)
 void HideProgress()
 {
 	if (!hWnd || !IsWindow(hWnd)) return;
-	// Drop topmost first to avoid blocking the launched game's window.
 	SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
 		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 	ShowWindow(hWnd, SW_HIDE);
@@ -58,7 +67,6 @@ void HideProgress()
 void BackgroundProgress()
 {
 	if (!hWnd || !IsWindow(hWnd)) return;
-	// Keep it visible but not topmost, so the launched game can stay in front.
 	SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
 		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
@@ -84,8 +92,74 @@ static void LoadBackgroundImageIfAny()
 	}
 }
 
-// Optional API: call this BEFORE ShowProgress() if you want a custom background image.
-// Supports common formats (png/jpg/bmp) depending on installed codecs.
+static void LoadSequenceFrames()
+{
+	g_frames.clear();
+	g_currentFrame = 0;
+
+	if (g_sequenceFolderPath.empty()) return;
+
+	EnsureGdiplusStarted();
+
+	// Get screen size for pre-scaling
+	int screenW = GetSystemMetrics(SM_CXSCREEN);
+	int screenH = GetSystemMetrics(SM_CYSCREEN);
+	bool isPortrait = (screenH > screenW);
+
+	// Search for PNG files in the folder
+	std::wstring searchPath = g_sequenceFolderPath + L"\\*.png";
+	WIN32_FIND_DATAW fd;
+	HANDLE hFind = FindFirstFileW(searchPath.c_str(), &fd);
+	if (hFind == INVALID_HANDLE_VALUE) return;
+
+	std::vector<std::wstring> filenames;
+	do {
+		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+			filenames.push_back(fd.cFileName);
+		}
+	} while (FindNextFileW(hFind, &fd));
+	FindClose(hFind);
+
+	// Sort filenames alphabetically so frame order is correct
+	std::sort(filenames.begin(), filenames.end());
+
+	// Determine target width based on orientation:
+	// Landscape: 90% of screen width
+	// Portrait: 1.5x of original image width (1000 * 1.5 = 1500)
+	int targetW;
+	if (isPortrait) {
+		targetW = 0; // will be set per-frame based on original size * 1.5
+	} else {
+		targetW = (int)(screenW * 0.90f);
+	}
+
+	// Pre-scale each frame to target size
+	for (const auto& fname : filenames) {
+		std::wstring fullPath = g_sequenceFolderPath + L"\\" + fname;
+		Gdiplus::Image srcImg(fullPath.c_str());
+		if (srcImg.GetLastStatus() != Gdiplus::Ok) continue;
+
+		int imgW = srcImg.GetWidth();
+		int imgH = srcImg.GetHeight();
+
+		// Calculate actual target width
+		int actualTargetW = isPortrait ? (int)(imgW * 1.5f) : targetW;
+		float scale = (float)actualTargetW / (float)imgW;
+		int targetH = (int)(imgH * scale);
+
+		// Create pre-scaled bitmap
+		auto scaledBmp = std::make_unique<Gdiplus::Bitmap>(actualTargetW, targetH, PixelFormat32bppARGB);
+		if (!scaledBmp || scaledBmp->GetLastStatus() != Gdiplus::Ok) continue;
+
+		Gdiplus::Graphics gfx(scaledBmp.get());
+		gfx.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+		gfx.DrawImage(&srcImg, 0, 0, actualTargetW, targetH);
+
+		g_frames.push_back(std::move(scaledBmp));
+	}
+}
+
+// Set a single static background image path (legacy API)
 void SetProgressBackgroundImagePath(const wchar_t* path)
 {
 	if (!path || !*path) {
@@ -102,14 +176,33 @@ void SetProgressBackgroundImagePath(const wchar_t* path)
 	g_backgroundImagePath = path;
 }
 
-void ErrorMessage(int ErrorCode, int CodeLine) {
+// Set PNG sequence folder path and frame rate
+// folderPath: folder containing PNG files (sorted alphabetically = frame order)
+// fps: frames per second (e.g. 30)
+void SetProgressBackgroundSequence(const wchar_t* folderPath, int fps)
+{
+	if (!folderPath || !*folderPath) {
+		g_sequenceFolderPath = L"";
+		return;
+	}
 
+	DWORD attr = GetFileAttributesW(folderPath);
+	if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+		g_sequenceFolderPath = L"";
+		return;
+	}
+
+	g_sequenceFolderPath = folderPath;
+	if (fps <= 0) fps = 30;
+	g_frameIntervalMs = 1000 / fps;
+}
+
+void ErrorMessage(int ErrorCode, int CodeLine) {
 	std::wstring msg = L"E" + std::to_wstring(ErrorCode) + L":" + std::to_wstring(CodeLine);
 	PostBannerText(msg, true);
 }
 
 void InfoMessage(const char* Info) {
-
 	if (!Info || !*Info) {
 		PostBannerText(L"", false);
 		return;
@@ -132,19 +225,52 @@ void InitProgressBar(HWND hWnd)
 	// No child controls. We draw everything ourselves in WM_PAINT (double-buffered).
 }
 
-// UI thread 的 WindowProc
+// Helper: draw the current background frame (sequence or static image or gradient)
+static void DrawBackground(Gdiplus::Graphics& g, HDC memDC, int w, int h)
+{
+	// Always fill black background first
+	Gdiplus::SolidBrush blackBrush(Gdiplus::Color(255, 0, 0, 0));
+	g.FillRectangle(&blackBrush, 0, 0, w, h);
+
+	Gdiplus::Image* bgImg = nullptr;
+
+	// Priority: PNG sequence > single image
+	if (!g_frames.empty()) {
+		bgImg = g_frames[g_currentFrame].get();
+	}
+	else if (g_backgroundImage) {
+		bgImg = g_backgroundImage.get();
+	}
+
+	if (bgImg)
+	{
+		// Draw pre-scaled frame
+		// Position: horizontally centered
+		// Landscape: vertically centered around 30% from top (upper area)
+		// Portrait: vertically centered around 35% from top
+		int imgW = bgImg->GetWidth();
+		int imgH = bgImg->GetHeight();
+		int drawX = (w - imgW) / 2;
+
+		float verticalCenter = 0.50f;
+		int drawY = (int)(h * verticalCenter) - (imgH / 2);
+
+		Gdiplus::Rect dest(drawX, drawY, imgW, imgH);
+		g.DrawImage(bgImg, dest);
+	}
+}
+
+// UI thread WindowProc
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	switch (msg)
 	{
 	case WM_ERASEBKGND:
-		// We paint the full background in WM_PAINT to avoid flicker.
 		return 1;
+
 	case WM_UPDATE_TEXT:
 	{
-		
 		wchar_t* text = (wchar_t*)wParam;
-		//printf("[%s][%d] : %ls (len=%d)\n", __func__, __LINE__, text, wcslen(text));
 		g_titleText = (text ? text : L"");
 		InvalidateRect(hWnd, NULL, TRUE);
 		delete[] text;
@@ -161,8 +287,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_CREATE:
 		LoadBackgroundImageIfAny();
+		LoadSequenceFrames();
 		InitProgressBar(hWnd);
+		// Start animation timer if we have frames
+		// Use 16ms interval (high frequency) for smooth animation;
+		// actual frame advance is controlled by elapsed time check
+		if (!g_frames.empty()) {
+			SetTimer(hWnd, WM_ANIM_TIMER_ID, 16, NULL);
+		}
 		return 0;
+
+	case WM_TIMER:
+	{
+		if (wParam == WM_ANIM_TIMER_ID && !g_frames.empty()) {
+			// Use elapsed time to ensure consistent animation speed regardless of screen
+			DWORD now = GetTickCount();
+			if (g_lastFrameTime == 0) g_lastFrameTime = now;
+			DWORD elapsed = now - g_lastFrameTime;
+			if (elapsed >= (DWORD)g_frameIntervalMs) {
+				int framesToAdvance = (int)(elapsed / g_frameIntervalMs);
+				g_currentFrame = (g_currentFrame + framesToAdvance) % (int)g_frames.size();
+				g_lastFrameTime = now;
+				InvalidateRect(hWnd, nullptr, FALSE);
+			}
+		}
+		return 0;
+	}
 
 	case WM_SIZE:
 	{
@@ -170,15 +320,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return 0;
 	}
 
-	case UPDATE_PERCENT:   // 背景 thread 來的訊息
+	case UPDATE_PERCENT:
 	{
 		int percent = (int)wParam;
 		if (percent < 0) percent = 0;
 		if (percent > 100) percent = 100;
-
 		g_percent = percent;
 		InvalidateRect(hWnd, nullptr, FALSE);
-
 		return 0;
 	}
 
@@ -189,11 +337,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		RECT rc{};
 		GetClientRect(hWnd, &rc);
 
-		// Double-buffer everything to avoid flicker.
 		EnsureGdiplusStarted();
 		const int w = rc.right - rc.left;
 		const int h = rc.bottom - rc.top;
 
+		// Double-buffer
 		HDC memDC = CreateCompatibleDC(hdc);
 		HBITMAP memBmp = CreateCompatibleBitmap(hdc, w, h);
 		HGDIOBJ oldBmp = SelectObject(memDC, memBmp);
@@ -202,42 +350,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		g.SetSmoothingMode(Gdiplus::SmoothingModeHighQuality);
 		g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
 
-		// Paint background (image if provided; otherwise a dark gradient)
+		// Draw background
+		DrawBackground(g, memDC, w, h);
 
-		if (g_backgroundImage)
-		{
-			Gdiplus::Rect dest(0, 0, w, h);
-			g.DrawImage(g_backgroundImage.get(), dest);
-
-			// Add a subtle dark overlay to ensure text readability.
-			Gdiplus::SolidBrush overlay(Gdiplus::Color(140, 0, 0, 0));
-			g.FillRectangle(&overlay, dest);
-		}
-		else
-		{
-			// Simple vertical gradient
-			TRIVERTEX vert[2]{};
-			vert[0].x = 0; vert[0].y = 0;
-			vert[0].Red = 0x1010; vert[0].Green = 0x1010; vert[0].Blue = 0x1414; vert[0].Alpha = 0xFFFF;
-			vert[1].x = w; vert[1].y = h;
-			vert[1].Red = 0x0000; vert[1].Green = 0x0000; vert[1].Blue = 0x0000; vert[1].Alpha = 0xFFFF;
-			GRADIENT_RECT gRect{ 0,1 };
-			GradientFill(memDC, vert, 2, &gRect, 1, GRADIENT_FILL_RECT_V);
-
-			// subtle vignette overlay
-			Gdiplus::Rect dest(0, 0, w, h);
-			Gdiplus::SolidBrush overlay(Gdiplus::Color(80, 0, 0, 0));
-			g.FillRectangle(&overlay, dest);
-		}
-
-		// Draw title + percent ourselves (prevents overlap/flicker from transparent STATIC controls)
-		int progressY = (h * 60 / 100);
+		// Adaptive layout: use bottom region for all UI elements
+		// Portrait mode (h > w): position at 4/5 of screen height
+		// Landscape mode (w >= h): position at bottom 1/3
+		const bool isPortrait = (h > w);
+		const int regionTop = isPortrait ? (h * 3 / 5) : (h * 2 / 3);
+		const int regionH = h - regionTop;
+		int progressY = regionTop + (regionH * 60 / 100);
 		const bool showBanner = !g_bannerText.empty();
-		const int titleTop = showBanner ? (progressY - 125) : (progressY - 140);
+		const int bannerTop = regionTop + (regionH * 5 / 100);
+		const int titleTop = progressY - (regionH * 20 / 100);
 
 		Gdiplus::FontFamily family(L"Segoe UI");
-		Gdiplus::Font bannerFont(&family, 56.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-		Gdiplus::Font titleFont(&family, 40.0f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
 		Gdiplus::Font percentFont(&family, 22.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
 		Gdiplus::SolidBrush white(Gdiplus::Color(240, 255, 255, 255));
 		Gdiplus::SolidBrush whiteDim(Gdiplus::Color(210, 255, 255, 255));
@@ -251,20 +378,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 		if (showBanner)
 		{
-			Gdiplus::RectF bannerRect(0.0f, (Gdiplus::REAL)(progressY - 255), (Gdiplus::REAL)w, 95.0f);
+			Gdiplus::REAL bannerFontSize = (h < 800) ? 36.0f : 56.0f;
+			Gdiplus::Font bannerFontAdj(&family, bannerFontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+			Gdiplus::RectF bannerRect(0.0f, (Gdiplus::REAL)bannerTop, (Gdiplus::REAL)w, (Gdiplus::REAL)(regionH * 25 / 100));
 			Gdiplus::SolidBrush* bannerBrush = g_bannerIsError ? &bannerError : &bannerInfo;
-			g.DrawString(g_bannerText.c_str(), -1, &bannerFont, bannerRect, &center, bannerBrush);
+			g.DrawString(g_bannerText.c_str(), -1, &bannerFontAdj, bannerRect, &center, bannerBrush);
 		}
 
-		Gdiplus::RectF titleRect(0.0f, (Gdiplus::REAL)titleTop, (Gdiplus::REAL)w, 70.0f);
-		g.DrawString(g_titleText.c_str(), -1, &titleFont, titleRect, &center, &white);
+		Gdiplus::REAL titleFontSize = (h < 800) ? 28.0f : 40.0f;
+		Gdiplus::Font titleFontAdj(&family, titleFontSize, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+		Gdiplus::RectF titleRect(0.0f, (Gdiplus::REAL)titleTop, (Gdiplus::REAL)w, (Gdiplus::REAL)(regionH * 20 / 100));
+		g.DrawString(g_titleText.c_str(), -1, &titleFontAdj, titleRect, &center, &white);
 
 		wchar_t pctBuf[16];
 		swprintf(pctBuf, 16, L"%d%%", g_percent);
-		Gdiplus::RectF pctRect(0.0f, (Gdiplus::REAL)(progressY + 34), (Gdiplus::REAL)w, 30.0f);
+		Gdiplus::RectF pctRect(0.0f, (Gdiplus::REAL)(progressY + 24), (Gdiplus::REAL)w, 30.0f);
 		g.DrawString(pctBuf, -1, &percentFont, pctRect, &center, &whiteDim);
 
-		// Draw a modern progress bar (rounded, soft glow)
+		// Progress bar
 		const int barW = (w < 900) ? (w * 70 / 100) : 720;
 		const int barH = 18;
 		const int barX = (w - barW) / 2;
@@ -274,7 +405,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		Gdiplus::SolidBrush barBg(Gdiplus::Color(120, 20, 20, 20));
 		Gdiplus::SolidBrush barFill(Gdiplus::Color(230, 0, 170, 255));
 
-		// Rounded-rect path helper (GraphicsPath can't be copied/returned by value)
 		auto addRoundRect = [](Gdiplus::GraphicsPath& path, const Gdiplus::RectF& r, Gdiplus::REAL radius) {
 			const Gdiplus::REAL d = radius * 2.0f;
 			path.Reset();
@@ -310,6 +440,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	}
 
 	case WM_DESTROY:
+		KillTimer(hWnd, WM_ANIM_TIMER_ID);
 		PostQuitMessage(0);
 		return 0;
 	}
@@ -320,7 +451,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 void SetProgress(DWORD percent)
 {
 	if (percent > 100) percent = 100;
-
 	PostMessageW(hWnd, UPDATE_PERCENT, percent, 0);
 }
 
@@ -328,7 +458,6 @@ void SetProgressText(const wchar_t* title)
 {
 	wchar_t* text = new wchar_t[128];
 	swprintf(text, 128, L"%ls", title);
-
 	PostMessageW(hWnd, WM_UPDATE_TEXT, (WPARAM)text, 0);
 }
 
@@ -336,7 +465,6 @@ void DestoryProgress()
 {
 	PostMessageW(hWnd, WM_DESTROY, 0, 0);
 }
-
 
 void ShowProgress(DWORD Mode) {
 
@@ -347,17 +475,14 @@ void ShowProgress(DWORD Mode) {
 	wc.hInstance = hInst;
 	wc.lpszClassName = L"MyWin32Window";
 	wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	LPCTSTR windowTitle = TEXT("");
 
 	RegisterClass(&wc);
 
-	// Fullscreen (primary monitor)
 	int screenWidth = GetSystemMetrics(SM_CXSCREEN);
 	int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
 	hWnd = CreateWindow(
 		L"MyWin32Window",
-		//windowTitle,
 		L"",
 		WS_POPUP,
 		0, 0,
@@ -365,10 +490,6 @@ void ShowProgress(DWORD Mode) {
 		NULL, NULL, hInst, NULL
 	);
 
-	
-	// Text is drawn in WM_PAINT via GDI+, not STATIC controls.
-
-	// Bring to front, full screen, no caption
 	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenWidth, screenHeight, SWP_SHOWWINDOW);
 	UpdateWindow(hWnd);
 

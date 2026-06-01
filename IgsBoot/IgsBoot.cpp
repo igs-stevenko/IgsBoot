@@ -84,7 +84,7 @@ int GetMode(void) {
         return BOOT_MODE;
     }
 
-    /* 檢查內部的USB下Port掛載起來的磁碟區內，是否有x.img */
+    /* 檢查內部的USB下Port掛載起來的磁碟區內，是否123有x.img */
     if (UsbInfo.PortDown_found) {
         BYTE XImagePath[512] = { 0 };
         sprintf((char*)XImagePath, "%s%s", UsbInfo.PortDown_mountpath, XIMAGE);
@@ -302,10 +302,15 @@ int BootMode() {
 
     UI_SetPercent(99, 100);
 
+    /* 等待進度條跑到 100% 再啟動遊戲 */
+    while (UI_Stop == 0) {
+        Sleep(100);
+    }
+
     /* 啟動遊戲 */
     // Let the game (Unity) own the foreground; keep this process alive in background.
     HideProgress();
-    EnsureAlwaysRunning(L"X:\\Game\\Golden HoYeah.exe", L"X:\\Game");
+    EnsureAlwaysRunning(L"X:\\Game\\AWPCasinoGame.exe", L"X:\\Game");
 
     return rtn;
 }
@@ -538,7 +543,8 @@ int UpdateMode() {
 void GenUIThread(int mode)
 {
     int rtn = 0;
-    SetProgressBackgroundImagePath(L"C:\\Program Files (x86)\\IGS\\test.png");
+    // PNG sequence animation: folder contains PNG files sorted alphabetically, played at 30 FPS
+    SetProgressBackgroundSequence(L"C:\\Program Files (x86)\\IGS\\frames", 30);
     ShowProgress(ProcessMode);
 }
 
