@@ -37,8 +37,14 @@
  processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #define XIMAGE "x.img"
-#define MD5_FILE "x_md5.bin"
+#define SHA1_FILE "x_sha1.bin"
 #define LOCAL_XIMAGE_PATH "C:\\Program Files (x86)\\IGS\\x.img"
+
+static const BYTE HMAC_KEY[] = {
+    0x4F, 0x43, 0x50, 0x5F, 0x48, 0x4D, 0x41, 0x43,
+    0x5F, 0x4B, 0x45, 0x59, 0x5F, 0x49, 0x47, 0x53
+};
+static const int HMAC_KEY_LEN = sizeof(HMAC_KEY);
 
 struct InsideUsbInfo UsbInfo;
 BYTE MountPath[512] = { 0 };
@@ -182,6 +188,66 @@ int BootMode() {
     int rtn = 0;
 	int i = 0;
 
+    UI_SetPercent(0, 10);
+    /* 計算本機x.img的HMAC-SHA1值 */
+    BYTE LocalXImageHMAC[20] = { 0 };
+    rtn = GetSHA1((BYTE*)LOCAL_XIMAGE_PATH, HMAC_KEY, HMAC_KEY_LEN, LocalXImageHMAC);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-BM_GET_IMKEY_FAILED, __LINE__);
+        return -BM_GET_IMKEY_FAILED;
+    }
+
+#ifdef _DEBUG
+    printf("LocalXImageHMAC: ");
+    for (int j = 0; j < 20; j++) {
+        printf("0x%02X", LocalXImageHMAC[j]);
+        if (j < 19) printf(",");
+    }
+    printf("\n");
+#endif
+
+    /* 從Registry讀取預期的HMAC-SHA1值並與計算值比對 */
+    {
+        HKEY hKey = NULL;
+        LONG lResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+            "SOFTWARE\\IGS\\ProductionTool", 0, KEY_READ, &hKey);
+        if (lResult != ERROR_SUCCESS) {
+            UI_SetStop();
+            ErrorMessage(-BM_REGISTER_CHECK_FAILED, __LINE__);
+            return -BM_REGISTER_CHECK_FAILED;
+        }
+
+        BYTE expectedHMAC[20] = { 0 };
+        DWORD regValueLen = sizeof(expectedHMAC);
+        DWORD regType = 0;
+        lResult = RegQueryValueExA(hKey, "XimgHmacSha1", NULL, &regType,
+            expectedHMAC, &regValueLen);
+        RegCloseKey(hKey);
+
+        if (lResult != ERROR_SUCCESS || regType != REG_BINARY || regValueLen != 20) {
+            UI_SetStop();
+            ErrorMessage(-BM_REGISTER_CHECK_FAILED, __LINE__);
+            return -BM_REGISTER_CHECK_FAILED;
+        }
+
+#ifdef _DEBUG
+        printf("XimgHmacSha1 from Registry: ");
+        for (int j = 0; j < 20; j++) {
+            printf("0x%02X", expectedHMAC[j]);
+            if (j < 19) printf(",");
+        }
+        printf("\n");
+#endif
+
+        /* 比對計算出的HMAC與Registry中的值 */
+        if (memcmp(LocalXImageHMAC, expectedHMAC, 20) != 0) {
+            UI_SetStop();
+            ErrorMessage(-BM_REGISTER_CHECK_FAILED, __LINE__);
+            return -BM_REGISTER_CHECK_FAILED;
+        }
+    }
+
     /* IMKeyEnLen是磁碟中介Key(密)，因為經過TPM加密，所以長度是256 Bytes 
        IMKeyDeLen是磁碟中介Key(明)，Array長度開出256bytes是因為解密時需要這麼大的空間，而實際上只有48Bytes是有效值 */
     BYTE IMKeyEn[256] = { 0x00 };
@@ -190,16 +256,16 @@ int BootMode() {
     DWORD IMKeyDeLen = sizeof(IMKeyDe);
 
 
-    UI_SetPercent(0, 10);
-    //檢查Register的設置是否都正確 
+    
+    //檢查Register的設置是否都正確
     rtn = CheckRegister();
     if(rtn != 0){
         ErrorMessage(BM_REGISTER_CHECK_FAILED, __LINE__);
         Sleep(2000); // 等待錯誤訊息顯示
         UI_SetStop();
         return -BM_REGISTER_CHECK_FAILED;
-	}
-
+    }
+    
     // TPM 1 分鐘還沒 ready → 直接 fail
     if (!WaitForTPM(60)) {
         UI_SetStop();
@@ -445,50 +511,50 @@ int UpdateMode() {
 
     UI_SetPercent(5, 10);
 
-    /* 取得USB內x_md5.bin的數值 */
-    BYTE MD5[16] = { 0 };
-    BYTE XImageMd5Path[128] = { 0 };
-    sprintf((char*)XImageMd5Path, "%s%s", MountPath, MD5_FILE);
-    rtn = ReadFromFile((const char*)XImageMd5Path, MD5, 16);
+    /* 取得USB內x_sha1.bin的數值 */
+    BYTE SHA1[20] = { 0 };
+    BYTE XImageSha1Path[128] = { 0 };
+    sprintf((char*)XImageSha1Path, "%s%s", MountPath, SHA1_FILE);
+    rtn = ReadFromFile((const char*)XImageSha1Path, SHA1, 20);
     if (rtn != 0) {
         UI_SetStop();
-        ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
-        return -UM_GET_MD5_FAILED;
+        ErrorMessage(-UM_GET_SHA1_FAILED, __LINE__);
+        return -UM_GET_SHA1_FAILED;
     }
 
     UI_SetPercent(10, 70);
 
-    /* 取得USB槽內的x.img的md5，取得失敗則要跳錯 */
-	BYTE USBXImageMD5[16] = { 0 };
-    rtn = GetMD5(XImagePath, USBXImageMD5);
+    /* 取得USB槽內的x.img的sha1，取得失敗則要跳錯 */
+	BYTE USBXImageSHA1[20] = { 0 };
+    rtn = GetSHA1(XImagePath, HMAC_KEY, HMAC_KEY_LEN, USBXImageSHA1);
     if (rtn != 0) {
         UI_SetStop();
-        ErrorMessage(-UM_GET_MD5_FAILED, __LINE__);
-		return -UM_GET_MD5_FAILED;
+        ErrorMessage(-UM_GET_SHA1_FAILED, __LINE__);
+		return -UM_GET_SHA1_FAILED;
     }
 
     UI_SetPercent(70, 80);
 
-    /* 比對USBXImageMD5[]與MD5[]是否相同，若不相同則停止 */
-    if (memcmp(USBXImageMD5, MD5, sizeof(USBXImageMD5)) != 0) {
+    /* 比對USBXImageSHA1[]與SHA1[]是否相同，若不相同則停止 */
+    if (memcmp(USBXImageSHA1, SHA1, sizeof(USBXImageSHA1)) != 0) {
         UI_SetStop();
-        ErrorMessage(-UM_CHECK_MD5_FAILED, __LINE__);
-        return UM_GET_MD5_FAILED;
+        ErrorMessage(-UM_CHECK_SHA1_FAILED, __LINE__);
+        return UM_GET_SHA1_FAILED;
     }
 
-    /* 檢查C槽內的x.img是否存在，若存在才去取得md5，若檔案不存在，則直接進行更新 */
+    /* 檢查C槽內的x.img是否存在，若存在才去取得sha1，若檔案不存在，則直接進行更新 */
     rtn = DetectFile((BYTE *)LOCAL_XIMAGE_PATH);
     if (rtn == FILE_EXIST) {
 
-        /* 取得C槽內的x.img md5 ，如果Return錯誤就直接進行更新 */
-        BYTE LocalXImageMD5[16] = { 0 };
-        rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
+        /* 取得C槽內的x.img sha1 ，如果Return錯誤就直接進行更新 */
+        BYTE LocalXImageSHA1[20] = { 0 };
+        rtn = GetSHA1((BYTE*)LOCAL_XIMAGE_PATH, HMAC_KEY, HMAC_KEY_LEN, LocalXImageSHA1);
         if (rtn == 0) {
-            /* 取得MD5成功，進行比對
+            /* 取得SHA1成功，進行比對
             /* 比對C槽內的x.img使否與USB內的x.img相同 */
-            /* 比對USBXImageMD5[]與LocalXImageMD5是否相同，若相同則不更新(代表檔案相同) */
-            if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) == 0) {
-                return -UM_XIMAGE_SAME_MD5;
+            /* 比對USBXImageSHA1[]與LocalXImageSHA1是否相同，若相同則不更新(代表檔案相同) */
+            if (memcmp(USBXImageSHA1, LocalXImageSHA1, sizeof(USBXImageSHA1)) == 0) {
+                return -UM_XIMAGE_SAME_SHA1;
             }
         }
 
@@ -510,8 +576,8 @@ int UpdateMode() {
 
     UI_SetPercent(90, 95);
 
-    BYTE LocalXImageMD5[16] = { 0 };
-    rtn = GetMD5((BYTE*)LOCAL_XIMAGE_PATH, LocalXImageMD5);
+    BYTE LocalXImageSHA1[20] = { 0 };
+    rtn = GetSHA1((BYTE*)LOCAL_XIMAGE_PATH, HMAC_KEY, HMAC_KEY_LEN, LocalXImageSHA1);
     if (rtn != 0) {
         UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
@@ -520,7 +586,7 @@ int UpdateMode() {
 
     UI_SetPercent(95, 99);
 
-    if (memcmp(USBXImageMD5, LocalXImageMD5, sizeof(USBXImageMD5)) != 0) {
+    if (memcmp(USBXImageSHA1, LocalXImageSHA1, sizeof(USBXImageSHA1)) != 0) {
         UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
         return -UM_XIMAGE_COPY_FAILED;
@@ -635,7 +701,7 @@ int main(int argc, char* argv[])
 {
     int rtn = 0;
 
-    FreeConsole();
+    //FreeConsole();
 
     std::thread t(GenUIThread, ProcessMode);
     t.detach();   // 讓 thread 自己跑，不阻塞主程式
@@ -662,7 +728,7 @@ int main(int argc, char* argv[])
     else if (ProcessMode == UPDATE_MODE) {
 
         rtn = UpdateMode();
-        if (rtn == -UM_XIMAGE_SAME_MD5) {
+        if (rtn == -UM_XIMAGE_SAME_SHA1) {
             /* 如果更新碟遊戲與C槽遊戲相同 */
             ProcessMode = BOOT_MODE;
             BootMode();

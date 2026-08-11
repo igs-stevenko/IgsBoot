@@ -26,6 +26,6 @@ enum {
 
 int DetectUSBStorage(BYTE* MountPath);
 int DetectFile(BYTE* ImagePath);
-int GetMD5(BYTE* ImagePath, BYTE* MD5);
+int GetSHA1(BYTE* ImagePath, const BYTE* Key, int KeyLen, BYTE* SHA1Hash);
 int RemoveFile(BYTE* FilePath);
 int CopyFile(BYTE* srcPath, BYTE* dstPath);

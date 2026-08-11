@@ -24,7 +24,7 @@
 
 #define LOCAL_XIMAGE_PATH "C:\\Program Files (x86)\\IGS\\x.img"
 #define UPDATE_IMGAGE "x.img"
-#define MD5_FILE "x_md5.bin"
+#define SHA1_FILE "x_sha1.bin"
 
 
 bool FileExists(const char* FilePath)
@@ -265,31 +265,31 @@ int DetectFile (BYTE *XImagePath)
 
 /*
 *  執行內容 :
-    1.取得參數1.檔案的MD5數值
+    1.取得參數1.檔案的HMAC-SHA1數值
    參數 :
     參數1.目標路徑
-    參數2. 該檔案的MD5數值
+    參數2. 該檔案的HMAC-SHA1數值
    回傳值 :
        0.無錯誤
        負數:檔案不存在或任何動作失敗
 
 */
-int GetMD5(BYTE* ImagePath, BYTE* MD5) {
+int GetSHA1(BYTE* ImagePath, const BYTE* Key, int KeyLen, BYTE* SHA1Hash) {
     
     int rtn = 0;
 
     /* 如果這兩個陣列是空的，則返回錯誤 */
-    if (ImagePath == NULL || MD5 == NULL) {
+    if (ImagePath == NULL || SHA1Hash == NULL || Key == NULL || KeyLen <= 0) {
         return -1;
     }
 
-    BYTE ImageMD5[16] = { 0 };
-    rtn = CalcFileMD5((const char*)ImagePath, ImageMD5);
+    BYTE ImageSHA1[20] = { 0 };
+    rtn = CalcFileHMACSHA1((const char*)ImagePath, Key, KeyLen, ImageSHA1);
     if (rtn != 0) {
         return -2;
     }
 
-    memcpy(MD5, ImageMD5, sizeof(ImageMD5));
+    memcpy(SHA1Hash, ImageSHA1, sizeof(ImageSHA1));
 
     return rtn;
 }

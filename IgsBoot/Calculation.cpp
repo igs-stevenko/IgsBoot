@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <string>
 #include <openssl/evp.h>
+#include <openssl/params.h>
 #include <openssl/rand.h>
 #include <stdint.h>
 #include <tbs.h>
@@ -86,8 +87,12 @@ int Aes256Decrypt(BYTE *Key,BYTE *IV, BYTE *Input, DWORD InputLen, BYTE *Output,
 }
 
 
-int CalcFileMD5(const char* filename, unsigned char* out_md5)
+int CalcFileHMACSHA1(const char* filename, const unsigned char* key, int keyLen, unsigned char* out_hmac)
 {
+	if (keyLen <= 0) {
+		return -1;
+	}
+
 	FILE* fp = NULL;
 	fopen_s(&fp, filename, "rb");
 	if (!fp) {
@@ -95,22 +100,36 @@ int CalcFileMD5(const char* filename, unsigned char* out_md5)
 		return -1;
 	}
 
-	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-	if (!ctx) {
+	EVP_MAC* mac = EVP_MAC_fetch(NULL, "HMAC", NULL);
+	if (!mac) {
 		fclose(fp);
 		return -2;
 	}
 
-	if (EVP_DigestInit_ex(ctx, EVP_md5(), NULL) != 1) {
+	EVP_MAC_CTX* ctx = EVP_MAC_CTX_new(mac);
+	if (!ctx) {
+		EVP_MAC_free(mac);
 		fclose(fp);
-		EVP_MD_CTX_free(ctx);
+		return -2;
+	}
+
+	OSSL_PARAM params[] = {
+		OSSL_PARAM_construct_utf8_string("digest", (char*)"SHA1", 0),
+		OSSL_PARAM_construct_end()
+	};
+
+	if (EVP_MAC_init(ctx, key, keyLen, params) != 1) {
+		EVP_MAC_CTX_free(ctx);
+		EVP_MAC_free(mac);
+		fclose(fp);
 		return -3;
 	}
 
 	unsigned char* buffer = (unsigned char*)malloc(CHUNK_4M);
 	if (!buffer) {
+		EVP_MAC_CTX_free(ctx);
+		EVP_MAC_free(mac);
 		fclose(fp);
-		EVP_MD_CTX_free(ctx);
 		return -4;
 	}
 
@@ -118,25 +137,36 @@ int CalcFileMD5(const char* filename, unsigned char* out_md5)
 
 	while ((bytesRead = fread(buffer, 1, CHUNK_4M, fp)) > 0)
 	{
-		if (EVP_DigestUpdate(ctx, buffer, bytesRead) != 1) {
+		if (EVP_MAC_update(ctx, buffer, bytesRead) != 1) {
 			free(buffer);
+			EVP_MAC_CTX_free(ctx);
+			EVP_MAC_free(mac);
 			fclose(fp);
-			EVP_MD_CTX_free(ctx);
 			return -5;
 		}
 	}
 
-	unsigned int md_len = 0;
-	if (EVP_DigestFinal_ex(ctx, out_md5, &md_len) != 1) {
+	if (ferror(fp)) {
 		free(buffer);
+		EVP_MAC_CTX_free(ctx);
+		EVP_MAC_free(mac);
 		fclose(fp);
-		EVP_MD_CTX_free(ctx);
+		return -5;
+	}
+
+	size_t md_len = 0;
+	if (EVP_MAC_final(ctx, out_hmac, &md_len, 20) != 1) {
+		free(buffer);
+		EVP_MAC_CTX_free(ctx);
+		EVP_MAC_free(mac);
+		fclose(fp);
 		return -6;
 	}
 
 	free(buffer);
 	fclose(fp);
-	EVP_MD_CTX_free(ctx);
+	EVP_MAC_CTX_free(ctx);
+	EVP_MAC_free(mac);
 
 	return 0;
 }
