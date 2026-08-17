@@ -27,6 +27,9 @@
 #include "Reboot.h"
 #include "Usb.h"
 
+#define REG_IGS_PATH "SOFTWARE\\IGS\\ProductionTool"
+#define REG_XIMG_HMAC_NAME "XimgHmacSha1"
+
 #pragma warning(disable:4996)
 #pragma comment(lib, "tbs.lib")
 #pragma comment(lib, "libcrypto.lib")
@@ -38,6 +41,7 @@
 
 #define XIMAGE "x.img"
 #define SHA1_FILE "x_sha1.bin"
+#define DUMP_BIN "dump.bin"
 #define LOCAL_XIMAGE_PATH "C:\\Program Files (x86)\\IGS\\x.img"
 
 static const BYTE HMAC_KEY[] = {
@@ -79,7 +83,22 @@ void print_hex(unsigned char* buf, int len) {
 int GetMode(void) {
 
     int rtn = 0;
-   
+
+    /* 獨立偵測是否有任何 USB Storage 掛載，若有且含 dump.bin 則進入 DUMP_MODE */
+    {
+        BYTE DumpUsbPath[512] = { 0 };
+        rtn = DetectUSBStorage(DumpUsbPath);
+        if (rtn == USB_STORAGE_DETECTED) {
+            BYTE DumpBinPath[512] = { 0 };
+            sprintf((char*)DumpBinPath, "%c:\\%s", DumpUsbPath[0], DUMP_BIN);
+            rtn = DetectFile(DumpBinPath);
+            if (rtn == FILE_EXIST) {
+                sprintf((char*)MountPath, "%c:\\", DumpUsbPath[0]);
+                return DUMP_MODE;
+            }
+        }
+    }
+
     /* 掃描內部的USB Port */
     UsbInfo_Init(&UsbInfo);
     ScanInsideUsbDisk(&UsbInfo);
@@ -198,20 +217,14 @@ int BootMode() {
         return -BM_GET_IMKEY_FAILED;
     }
 
-#ifdef _DEBUG
-    printf("LocalXImageHMAC: ");
-    for (int j = 0; j < 20; j++) {
-        printf("0x%02X", LocalXImageHMAC[j]);
-        if (j < 19) printf(",");
-    }
-    printf("\n");
-#endif
+
+
 
     /* 從Registry讀取預期的HMAC-SHA1值並與計算值比對 */
     {
         HKEY hKey = NULL;
         LONG lResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-            "SOFTWARE\\IGS\\ProductionTool", 0, KEY_READ, &hKey);
+            REG_IGS_PATH, 0, KEY_READ, &hKey);
         if (lResult != ERROR_SUCCESS) {
             UI_SetStop();
             ErrorMessage(-BM_REGISTER_CHECK_FAILED, __LINE__);
@@ -221,7 +234,7 @@ int BootMode() {
         BYTE expectedHMAC[20] = { 0 };
         DWORD regValueLen = sizeof(expectedHMAC);
         DWORD regType = 0;
-        lResult = RegQueryValueExA(hKey, "XimgHmacSha1", NULL, &regType,
+        lResult = RegQueryValueExA(hKey, REG_XIMG_HMAC_NAME, NULL, &regType,
             expectedHMAC, &regValueLen);
         RegCloseKey(hKey);
 
@@ -231,14 +244,6 @@ int BootMode() {
             return -BM_REGISTER_CHECK_FAILED;
         }
 
-#ifdef _DEBUG
-        printf("XimgHmacSha1 from Registry: ");
-        for (int j = 0; j < 20; j++) {
-            printf("0x%02X", expectedHMAC[j]);
-            if (j < 19) printf(",");
-        }
-        printf("\n");
-#endif
 
         /* 比對計算出的HMAC與Registry中的值 */
         if (memcmp(LocalXImageHMAC, expectedHMAC, 20) != 0) {
@@ -247,6 +252,8 @@ int BootMode() {
             return -BM_REGISTER_CHECK_FAILED;
         }
     }
+
+
 
     /* IMKeyEnLen是磁碟中介Key(密)，因為經過TPM加密，所以長度是256 Bytes 
        IMKeyDeLen是磁碟中介Key(明)，Array長度開出256bytes是因為解密時需要這麼大的空間，而實際上只有48Bytes是有效值 */
@@ -471,6 +478,198 @@ int TryMountUsbXImg(BYTE *XImagePath) {
     return rtn;
 }
 
+int EjectUsbVolume(const char* mountPath) {
+
+    /* 取得磁碟機代號 (例如 "E:\\" → 'E') */
+    char driveLetter = mountPath[0];
+    if (driveLetter == '\0') return -1;
+
+    char volumePath[64] = { 0 };
+    sprintf(volumePath, "\\\\.\\%c:", driveLetter);
+
+    HANDLE hVolume = CreateFileA(
+        volumePath,
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        0,
+        NULL);
+
+    if (hVolume == INVALID_HANDLE_VALUE) {
+        printf("EjectUsbVolume: CreateFile failed, error=%lu\n", GetLastError());
+        return -1;
+    }
+
+    DWORD bytes = 0;
+
+    /* 鎖定磁碟區 */
+    if (!DeviceIoControl(hVolume, FSCTL_LOCK_VOLUME, NULL, 0, NULL, 0, &bytes, NULL)) {
+        printf("EjectUsbVolume: FSCTL_LOCK_VOLUME failed, error=%lu\n", GetLastError());
+        CloseHandle(hVolume);
+        return -2;
+    }
+
+    /* 卸載磁碟區 */
+    if (!DeviceIoControl(hVolume, FSCTL_DISMOUNT_VOLUME, NULL, 0, NULL, 0, &bytes, NULL)) {
+        printf("EjectUsbVolume: FSCTL_DISMOUNT_VOLUME failed, error=%lu\n", GetLastError());
+        CloseHandle(hVolume);
+        return -3;
+    }
+
+    /* 防止再次掛載 */
+    PREVENT_MEDIA_REMOVAL pmr = { TRUE };
+    DeviceIoControl(hVolume, IOCTL_STORAGE_MEDIA_REMOVAL, &pmr, sizeof(pmr), NULL, 0, &bytes, NULL);
+
+    /* 彈出裝置 */
+    if (!DeviceIoControl(hVolume, IOCTL_STORAGE_EJECT_MEDIA, NULL, 0, NULL, 0, &bytes, NULL)) {
+        printf("EjectUsbVolume: IOCTL_STORAGE_EJECT_MEDIA failed, error=%lu\n", GetLastError());
+        CloseHandle(hVolume);
+        return -4;
+    }
+
+    CloseHandle(hVolume);
+    return 0;
+}
+
+int DumpMode() {
+
+    int rtn = 0;
+
+    UI_SetPercent(0, 5);
+
+    /* 確認本機 x.img 是否存在 */
+    rtn = DetectFile((BYTE*)LOCAL_XIMAGE_PATH);
+    if (rtn != FILE_EXIST) {
+        UI_SetStop();
+        ErrorMessage(-DM_FILE_NOT_FOUND, __LINE__);
+        return -DM_FILE_NOT_FOUND;
+    }
+
+    UI_SetPercent(5, 10);
+
+    /* 取得 x.img 檔案大小 */
+    HANDLE hFile = CreateFileA(
+        LOCAL_XIMAGE_PATH,
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+    if (hFile == INVALID_HANDLE_VALUE) {
+        UI_SetStop();
+        ErrorMessage(-DM_GET_FILESIZE_FAILED, __LINE__);
+        return -DM_GET_FILESIZE_FAILED;
+    }
+
+    DWORD fileSizeHigh = 0;
+    DWORD fileSizeLow = GetFileSize(hFile, &fileSizeHigh);
+    CloseHandle(hFile);
+
+    if (fileSizeLow == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) {
+        UI_SetStop();
+        ErrorMessage(-DM_GET_FILESIZE_FAILED, __LINE__);
+        return -DM_GET_FILESIZE_FAILED;
+    }
+
+    ULONGLONG fileSize = ((ULONGLONG)fileSizeHigh << 32) | fileSizeLow;
+
+    /* 取得 USB 可用空間 */
+    ULARGE_INTEGER freeBytesAvailable;
+    ULARGE_INTEGER totalNumberOfBytes;
+    ULARGE_INTEGER totalNumberOfFreeBytes;
+
+    if (!GetDiskFreeSpaceExA(
+            (const char*)MountPath,
+            &freeBytesAvailable,
+            &totalNumberOfBytes,
+            &totalNumberOfFreeBytes)) {
+        UI_SetStop();
+        ErrorMessage(-DM_GET_DISKSPACE_FAILED, __LINE__);
+        return -DM_GET_DISKSPACE_FAILED;
+    }
+
+    /* 檢查 USB 空間是否足夠 */
+    if (freeBytesAvailable.QuadPart < fileSize) {
+        UI_SetStop();
+        ErrorMessage(-DM_INSUFFICIENT_SPACE, __LINE__);
+        return -DM_INSUFFICIENT_SPACE;
+    }
+
+    UI_SetPercent(10, 70);
+
+    /* 建構目標路徑，使用 snprintf 防止 buffer overflow */
+    BYTE DstPath[512] = { 0 };
+    int written = snprintf((char*)DstPath, sizeof(DstPath), "%s%s", MountPath, XIMAGE);
+    if (written < 0 || written >= (int)sizeof(DstPath)) {
+        UI_SetStop();
+        ErrorMessage(-DM_PATH_TOO_LONG, __LINE__);
+        return -DM_PATH_TOO_LONG;
+    }
+
+    /* 複製 C:\Program Files (x86)\IGS\x.img 到 USB 磁碟 */
+    rtn = CopyFile((BYTE*)LOCAL_XIMAGE_PATH, DstPath);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-DM_COPY_FAILED, __LINE__);
+        return -DM_COPY_FAILED;
+    }
+
+    UI_SetPercent(70, 90);
+
+    /* HMAC-SHA1 驗證 */
+    BYTE hmacSrc[20] = { 0 };
+    BYTE hmacDst[20] = { 0 };
+
+    /* 計算來源檔 HMAC */
+    rtn = GetSHA1((BYTE*)LOCAL_XIMAGE_PATH, HMAC_KEY, HMAC_KEY_LEN, hmacSrc);
+    if (rtn != 0) {
+        DeleteFileA((const char*)DstPath);  /* 清理已複製的檔案 */
+        UI_SetStop();
+        ErrorMessage(-DM_HMAC_SRC_FAILED, __LINE__);
+        return -DM_HMAC_SRC_FAILED;
+    }
+
+    /* 計算目標檔 HMAC */
+    rtn = GetSHA1(DstPath, HMAC_KEY, HMAC_KEY_LEN, hmacDst);
+    if (rtn != 0) {
+        DeleteFileA((const char*)DstPath);  /* 清理已複製的檔案 */
+        UI_SetStop();
+        ErrorMessage(-DM_HMAC_DST_FAILED, __LINE__);
+        return -DM_HMAC_DST_FAILED;
+    }
+
+    /* 比對 HMAC */
+    if (memcmp(hmacSrc, hmacDst, sizeof(hmacSrc)) != 0) {
+        DeleteFileA((const char*)DstPath);  /* 清理已複製的檔案 */
+        UI_SetStop();
+        ErrorMessage(-DM_VERIFY_FAILED, __LINE__);
+        return -DM_VERIFY_FAILED;
+    }
+
+    UI_SetPercent(90, 95);
+
+    /* 卸載 USB */
+    rtn = EjectUsbVolume((const char*)MountPath);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-DM_EJECT_FAILED, __LINE__);
+        return -DM_EJECT_FAILED;
+    }
+
+    UI_SetPercent(95, 100);
+
+    /* 等待進度條跑到 100% */
+    Sleep(3000);
+
+    /* 印出 Dump Completed */
+    InfoMessage("Dump Completed");
+
+    return 0;
+}
+
 int UpdateMode() {
 
     int rtn = 0;       
@@ -592,6 +791,14 @@ int UpdateMode() {
         return -UM_XIMAGE_COPY_FAILED;
     }
 
+    /* 將新的 HMAC-SHA1 寫回 Registry，供下次 BootMode 比對使用 */
+    rtn = HKLM_WriteRegValueBin(REG_IGS_PATH, REG_XIMG_HMAC_NAME, LocalXImageSHA1, 20);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
+        return -UM_XIMAGE_COPY_FAILED;
+    }
+
     UI_SetPercent(99, 100);
 
     /* 更新完成 */
@@ -653,6 +860,22 @@ void UIThread(int mode) {
 
             speed = 1;
         }
+        else if (ProcessMode == DUMP_MODE) {
+            if (toggle == 0) {
+                SetProgressText(TEXT("Game Dumping"));
+                toggle++;
+            }
+            else if (toggle == 1) {
+                SetProgressText(TEXT("Game Dumping ."));
+                toggle++;
+            }
+            else {
+                SetProgressText(TEXT("Game Dumping .."));
+                toggle = 0;
+            }
+
+            speed = 6;
+        }
         else {
             if (toggle == 0) {
                 SetProgressText(TEXT("Game Updating"));
@@ -680,6 +903,10 @@ void UIThread(int mode) {
                 NowPercent = 100;
                 if (ProcessMode == BOOT_MODE) {
                     SetProgressText(TEXT("Game Start"));
+                    UI_SetStop();
+                }
+                else if (ProcessMode == DUMP_MODE) {
+                    SetProgressText(TEXT("Dump Completed"));
                     UI_SetStop();
                 }
                 else {
@@ -723,6 +950,13 @@ int main(int argc, char* argv[])
         rtn = BootMode();
         if (rtn != 0) {
             printf("[%s][%d]\n", __func__, __LINE__);
+        }
+    }
+    else if (ProcessMode == DUMP_MODE) {
+
+        rtn = DumpMode();
+        if (rtn != 0) {
+            printf("[%s][%d] DumpMode failed, rtn=%d\n", __func__, __LINE__, rtn);
         }
     }
     else if (ProcessMode == UPDATE_MODE) {

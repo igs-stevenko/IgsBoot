@@ -94,6 +94,51 @@ int HKCU_ReadRegValueD(const char* RegName, const char* ValName, DWORD* Val) {
 	return 0;
 }
 
+int HKLM_WriteRegValueBin(const char* RegName, const char* ValName, const BYTE* Data, DWORD DataLen) {
+
+	HKEY hKey;
+	LONG status;
+	DWORD disposition = 0;
+
+	status = RegCreateKeyExA(
+		HKEY_LOCAL_MACHINE,
+		RegName,
+		0,
+		NULL,
+		REG_OPTION_NON_VOLATILE,
+		KEY_WRITE,
+		NULL,
+		&hKey,
+		&disposition
+	);
+
+	if (status != ERROR_SUCCESS) {
+		printf("HKLM_WriteRegValueBin: RegCreateKeyExA failed: %ld\n", status);
+		return -1;
+	}
+
+	status = RegSetValueExA(
+		hKey,
+		ValName,
+		0,
+		REG_BINARY,
+		Data,
+		DataLen
+	);
+
+	if (status != ERROR_SUCCESS) {
+		printf("HKLM_WriteRegValueBin: RegSetValueExA failed: %ld\n", status);
+		RegCloseKey(hKey);
+		return -2;
+	}
+
+	/* 確保寫入立即刷到磁碟 */
+	RegFlushKey(hKey);
+	RegCloseKey(hKey);
+
+	return 0;
+}
+
 int CheckShell() {
 
 	int rtn = 0;
