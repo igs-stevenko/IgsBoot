@@ -272,6 +272,7 @@ int BootMode() {
         UI_SetStop();
         return -BM_REGISTER_CHECK_FAILED;
     }
+
     
     // TPM 1 分鐘還沒 ready → 直接 fail
     if (!WaitForTPM(60)) {
@@ -281,7 +282,7 @@ int BootMode() {
     }
     
 
-    UI_SetPercent(0, 20);
+    UI_SetPercent(10, 20);
 
     //每個與實體Device通訊的地方都要加上Retry
     //EEPROM Retry 3次
@@ -741,6 +742,14 @@ int UpdateMode() {
         return UM_GET_SHA1_FAILED;
     }
 
+    /* 提前將USB x.img的HMAC寫入Registry，確保一旦進入更新就必須完成 */
+    rtn = HKLM_WriteRegValueBin(REG_IGS_PATH, REG_XIMG_HMAC_NAME, USBXImageSHA1, 20);
+    if (rtn != 0) {
+        UI_SetStop();
+        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
+        return -UM_XIMAGE_COPY_FAILED;
+    }
+
     /* 檢查C槽內的x.img是否存在，若存在才去取得sha1，若檔案不存在，則直接進行更新 */
     rtn = DetectFile((BYTE *)LOCAL_XIMAGE_PATH);
     if (rtn == FILE_EXIST) {
@@ -786,14 +795,6 @@ int UpdateMode() {
     UI_SetPercent(95, 99);
 
     if (memcmp(USBXImageSHA1, LocalXImageSHA1, sizeof(USBXImageSHA1)) != 0) {
-        UI_SetStop();
-        ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
-        return -UM_XIMAGE_COPY_FAILED;
-    }
-
-    /* 將新的 HMAC-SHA1 寫回 Registry，供下次 BootMode 比對使用 */
-    rtn = HKLM_WriteRegValueBin(REG_IGS_PATH, REG_XIMG_HMAC_NAME, LocalXImageSHA1, 20);
-    if (rtn != 0) {
         UI_SetStop();
         ErrorMessage(-UM_XIMAGE_COPY_FAILED, __LINE__);
         return -UM_XIMAGE_COPY_FAILED;
