@@ -381,6 +381,21 @@ int BootMode() {
         Sleep(100);
     }
 
+    /* 啟動 lpspooler (fire-and-forget，不監控) */
+    /*
+    {
+        STARTUPINFOW siLp = { 0 };
+        siLp.cb = sizeof(siLp);
+        PROCESS_INFORMATION piLp = { 0 };
+        wchar_t lpCmd[] = L"\"C:\\Quixant\\LPSPOOLER\\lpspooler.exe\"";
+        if (CreateProcessW(NULL, lpCmd, NULL, NULL, FALSE, 0, NULL,
+                           L"C:\\Quixant\\LPSPOOLER", &siLp, &piLp)) {
+            CloseHandle(piLp.hProcess);
+            CloseHandle(piLp.hThread);
+        }
+    }
+    */
+
     /* 啟動遊戲 */
     // Let the game (Unity) own the foreground; keep this process alive in background.
     HideProgress();
@@ -650,7 +665,7 @@ int DumpMode() {
         return -DM_VERIFY_FAILED;
     }
 
-    UI_SetPercent(90, 95);
+    UI_SetPercent(90, 99);
 
     /* 卸載 USB */
     rtn = EjectUsbVolume((const char*)MountPath);
@@ -660,13 +675,10 @@ int DumpMode() {
         return -DM_EJECT_FAILED;
     }
 
-    UI_SetPercent(95, 100);
-
-    /* 等待進度條跑到 100% */
-    Sleep(3000);
+    UI_SetPercent(99, 100);
 
     /* 印出 Dump Completed */
-    InfoMessage("Dump Completed");
+    /*InfoMessage("Dump Completed");*/
 
     return 0;
 }
